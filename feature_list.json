@@ -108,7 +108,7 @@
     "id": "F-007",
     "name": "event-repository",
     "phase": 3,
-    "status": "pending",
+    "status": "in_progress",
     "depends_on": [
       "F-006"
     ],

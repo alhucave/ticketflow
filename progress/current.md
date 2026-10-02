@@ -1,5 +1,9 @@
 # Estado actual
 
-Feature en curso: ninguna
-Ultimas completadas: F-001 a F-006 (APPROVED)
-Siguiente: F-007 — event-repository (y F-008, F-009 en Fase 3)
+Feature en curso: F-007 — event-repository
+Plan:
+- Excepcion de dominio EventAlreadyExistsException (id duplicado).
+- DynamoDbEventRepository (infrastructure.persistence): save con TransactWriteItems (events + inventory, attribute_not_exists), findById (GetItem), findAll (Scan paginado con expand).
+- Instant serializado como ISO-8601 string.
+- Tests unitarios con mocks (cobertura sin Docker) + IT Testcontainers (dynamodb-local 3.3.1).
+- Verificar ./init.sh y INCLUDE_INTEGRATION=true ./init.sh.
