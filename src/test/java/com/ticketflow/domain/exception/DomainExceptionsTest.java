@@ -48,4 +48,21 @@ class DomainExceptionsTest {
         assertThat(ex.expectedVersion()).isEqualTo(9L);
         assertThat(ex).hasMessageContaining("9");
     }
+
+    @Test
+    void orderAlreadyExists_created_exposesIdAndMessage() {
+        var ex = new OrderAlreadyExistsException(OID);
+        assertThat(ex.orderId()).isEqualTo(OID);
+        assertThat(ex).hasMessageContaining("o1");
+    }
+
+    @Test
+    void orderStatusConflict_created_exposesDetails() {
+        var ex = new OrderStatusConflictException(OID,
+                com.ticketflow.domain.model.TicketStatus.RESERVED, com.ticketflow.domain.model.TicketStatus.SOLD);
+        assertThat(ex.orderId()).isEqualTo(OID);
+        assertThat(ex.expected()).isEqualTo(com.ticketflow.domain.model.TicketStatus.RESERVED);
+        assertThat(ex.actual()).isEqualTo(com.ticketflow.domain.model.TicketStatus.SOLD);
+        assertThat(ex).hasMessageContaining("RESERVED").hasMessageContaining("SOLD");
+    }
 }

@@ -13,7 +13,9 @@ import software.amazon.awssdk.services.dynamodb.model.ScalarAttributeType;
 
 /**
  * Schema of the DynamoDB tables (see docs/architecture.md, "Modelo de datos").
- * Timestamps are ISO-8601 strings, which sort chronologically as range keys.
+ * Timestamps are ISO-8601 strings, which sort chronologically as range keys when rendered with a
+ * fixed-width fraction (see {@link DynamoDbOrderRepository}). The {@code order_audit} sort key
+ * {@code timestamp} holds {@code <ISO timestamp>#<uuid>} so same-instant entries never collide.
  */
 public final class DynamoDbTables {
 
