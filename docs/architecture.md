@@ -6,7 +6,7 @@ Paquete raíz: `com.ticketflow`.
 
 ```
 com.ticketflow
-├── domain            # Núcleo: sin Spring, sin AWS, sin Reactor
+├── domain            # Núcleo: sin Spring, sin AWS (Reactor solo en domain.port)
 │   ├── model         # records, enums (TicketStatus), value objects
 │   ├── exception     # errores de dominio
 │   └── port          # interfaces de salida (repositories, publishers) devuelven Mono/Flux

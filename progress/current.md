@@ -1,5 +1,5 @@
 # Estado actual
 
 Feature en curso: ninguna
-Ultimas completadas: F-001, F-002, F-003, F-004 (APPROVED)
-Siguiente: F-005 — domain-models-and-ports
+Ultimas completadas: F-001 a F-005 (APPROVED)
+Siguiente: F-006 — dynamodb-config-tables (Fase 3, persistencia)
