@@ -232,7 +232,7 @@
     "id": "F-014",
     "name": "usecase-process-order",
     "phase": 4,
-    "status": "in_progress",
+    "status": "done",
     "depends_on": [
       "F-008",
       "F-009"
@@ -276,7 +276,7 @@
     ],
     "issue": 16,
     "title": "SQS consumer with at-least-once semantics and DLQ",
-    "description": "Reactive long-polling consumer that calls ProcessOrderUseCase and deletes the message only after success. Configure visibility timeout, maxReceiveCount and DLQ redrive. Bounded concurrency; graceful shutdown. NOTE (from F-012 review): if the process dies between the placement transaction and the publish, an order stays RESERVED with no queue message (reclaimed on expiry); also the consumer must ignore messages whose order is no longer RESERVED (e.g. released after a failed publish).",
+    "description": "Reactive long-polling consumer that calls ProcessOrderUseCase and deletes the message only after success. Configure visibility timeout, maxReceiveCount and DLQ redrive. Bounded concurrency; graceful shutdown. NOTE (from F-012 review): if the process dies between the placement transaction and the publish, an order stays RESERVED with no queue message (reclaimed on expiry); also the consumer must ignore messages whose order is no longer RESERVED (e.g. released after a failed publish). NOTE (from F-014 review): ProcessOrderUseCase returns a sealed ProcessOrderResult (Sold, ReleasedAsExpired, AlreadyProcessed, OrderMissing): ack the message for all of them; let transient errors and a final OrderStatusConflictException (after 5 re-reads) propagate so SQS redelivers. If a worker dies between the two steps (RESERVED->PENDING_CONFIRMATION, ->SOLD) recovery relies on SQS redelivery (or the expiry sweep).",
     "acceptance": [
       "Message is deleted only after successful processing",
       "Failed processing makes the message reappear and, after maxReceiveCount, land in the DLQ (integration test)",
@@ -295,7 +295,7 @@
     ],
     "issue": 17,
     "title": "Scheduled release of expired reservations",
-    "description": "Reactive scheduler that periodically finds expired reservations and, per order, atomically transitions it to expired and returns inventory to available. Safe under multiple app instances (conditional transition ensures one winner). NOTES (from F-009 review): expired reservations end in AVAILABLE (no EXPIRED state; spec: tickets return to available inventory), with the reason in the audit entry. findExpiredReservations is GSI-based (eventually consistent): rely on OrderRepository.transition's conditional write so concurrent sweepers have a single winner and treat OrderStatusConflictException as benign. NOTE (from F-012 review): use OrderPlacementRepository.releaseReservation (single TransactWriteItems: conditional order update + audit + inventory reserved->available; accepts RESERVED and PENDING_CONFIRMATION) for expiry, instead of separate writes. An order whose publish never happened stays RESERVED and is reclaimed here.",
+    "description": "Reactive scheduler that periodically finds expired reservations and, per order, atomically transitions it to expired and returns inventory to available. Safe under multiple app instances (conditional transition ensures one winner). NOTES (from F-009 review): expired reservations end in AVAILABLE (no EXPIRED state; spec: tickets return to available inventory), with the reason in the audit entry. findExpiredReservations is GSI-based (eventually consistent): rely on OrderRepository.transition's conditional write so concurrent sweepers have a single winner and treat OrderStatusConflictException as benign. NOTE (from F-012 review): use OrderPlacementRepository.releaseReservation (single TransactWriteItems: conditional order update + audit + inventory reserved->available; accepts RESERVED and PENDING_CONFIRMATION) for expiry, instead of separate writes. An order whose publish never happened stays RESERVED and is reclaimed here. NOTE (from F-014 review): align the expiry boundary: ProcessOrderUseCase treats expiresAt <= now as expired while docs/architecture.md and OrderRepository.findExpiredReservations use expiresAt < now; make them consistent (update docs and the query or the use case) and test the boundary. Also reuse OrderPlacementRepository.releaseReservation (already used by ProcessOrderUseCase for the expired path).",
     "acceptance": [
       "Expired reservations return their quantity to available exactly once",
       "Non-expired reservations are untouched",
@@ -388,7 +388,7 @@
     ],
     "issue": 22,
     "title": "End-to-end concurrency and consistency tests",
-    "description": "Integration tests that fire many parallel purchase requests over limited capacity and assert no oversell, correct counters, no duplicate orders for the same Idempotency-Key and correct release after expiry.",
+    "description": "Integration tests that fire many parallel purchase requests over limited capacity and assert no oversell, correct counters, no duplicate orders for the same Idempotency-Key and correct release after expiry. NOTE (from F-014 review): audit sort keys are <timestamp>#<uuid>, so two entries in the same instant order randomly and clock skew between nodes could reorder them; the integration tests use a clock advancing 1 ms per read. Consider asserting audit ORDER only where the timestamps are strictly increasing, and document the limitation.",
     "acceptance": [
       "N parallel requests over capacity C never produce sold + reserved > C",
       "Counter invariant holds at the end of every scenario",
