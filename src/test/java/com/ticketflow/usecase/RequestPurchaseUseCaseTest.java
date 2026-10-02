@@ -12,6 +12,7 @@ import static org.mockito.Mockito.when;
 
 import com.ticketflow.domain.exception.EventNotFoundException;
 import com.ticketflow.domain.exception.IdempotencyKeyReusedException;
+import com.ticketflow.domain.exception.IdempotentOrderNotActiveException;
 import com.ticketflow.domain.exception.InsufficientInventoryException;
 import com.ticketflow.domain.exception.OrderAlreadyExistsException;
 import com.ticketflow.domain.exception.OrderEnqueueFailedException;
@@ -132,6 +133,30 @@ class RequestPurchaseUseCaseTest {
                 .verifyComplete();
         verifyNoInteractions(queue);
         verify(placement, never()).releaseReservation(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void execute_orderAlreadyExistsButReleased_failsWithNotActiveAndDoesNotPublish() {
+        when(placement.placeReservation(any(), any())).thenReturn(Mono.error(new OrderAlreadyExistsException(ORDER_ID)));
+        when(orders.findById(ORDER_ID)).thenReturn(Mono.just(existing(EVENT, 3, TicketStatus.AVAILABLE)));
+
+        StepVerifier.create(useCase.execute(COMMAND))
+                .expectErrorSatisfies(e -> {
+                    assertThat(e).isInstanceOf(IdempotentOrderNotActiveException.class);
+                    assertThat(((IdempotentOrderNotActiveException) e).key()).isEqualTo(KEY);
+                    assertThat(((IdempotentOrderNotActiveException) e).orderId()).isEqualTo(ORDER_ID);
+                })
+                .verify();
+        verifyNoInteractions(queue);
+        verify(placement, never()).releaseReservation(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void execute_releasedOrderWithDifferentPayload_keyReusedTakesPrecedence() {
+        when(placement.placeReservation(any(), any())).thenReturn(Mono.error(new OrderAlreadyExistsException(ORDER_ID)));
+        when(orders.findById(ORDER_ID)).thenReturn(Mono.just(existing(EVENT, 7, TicketStatus.AVAILABLE)));
+
+        StepVerifier.create(useCase.execute(COMMAND)).expectError(IdempotencyKeyReusedException.class).verify();
     }
 
     @Test

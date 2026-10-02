@@ -1,6 +1,7 @@
 package com.ticketflow.usecase;
 
 import com.ticketflow.domain.exception.IdempotencyKeyReusedException;
+import com.ticketflow.domain.exception.IdempotentOrderNotActiveException;
 import com.ticketflow.domain.exception.OrderAlreadyExistsException;
 import com.ticketflow.domain.exception.OrderEnqueueFailedException;
 import com.ticketflow.domain.model.Order;
@@ -30,7 +31,9 @@ import reactor.core.publisher.Mono;
  *       released in a second transaction and the failure is surfaced, never swallowed.</li>
  * </ol>
  *
- * <p>A replayed key returns the existing order as it stands and does not publish again; if the
+ * <p>A replayed key returns the existing order as it stands and does not publish again, unless that
+ * order was released (AVAILABLE): then {@link IdempotentOrderNotActiveException} is raised and the
+ * client must use a new key. If the
  * first attempt crashed between the transaction and the publish, the reservation is reclaimed when
  * it expires.
  */
@@ -96,9 +99,17 @@ public class RequestPurchaseUseCase {
         return orders.findById(attempted.id())
                 .switchIfEmpty(Mono.error(() -> new IllegalStateException(
                         "Order " + attempted.id().value() + " reported as existing but not found")))
-                .flatMap(existing -> existing.eventId().equals(command.eventId())
-                        && existing.quantity().equals(command.quantity())
-                        ? Mono.just(RequestPurchaseResult.of(existing, true))
-                        : Mono.error(new IdempotencyKeyReusedException(command.idempotencyKey(), existing.id())));
+                .flatMap(existing -> {
+                    if (!existing.eventId().equals(command.eventId())
+                            || !existing.quantity().equals(command.quantity())) {
+                        return Mono.<RequestPurchaseResult>error(
+                                new IdempotencyKeyReusedException(command.idempotencyKey(), existing.id()));
+                    }
+                    if (existing.status() == TicketStatus.AVAILABLE) {
+                        return Mono.<RequestPurchaseResult>error(
+                                new IdempotentOrderNotActiveException(command.idempotencyKey(), existing.id()));
+                    }
+                    return Mono.just(RequestPurchaseResult.of(existing, true));
+                });
     }
 }

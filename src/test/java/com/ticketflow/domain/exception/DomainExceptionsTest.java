@@ -76,6 +76,15 @@ class DomainExceptionsTest {
     }
 
     @Test
+    void idempotentOrderNotActive_created_exposesDetails() {
+        var key = new com.ticketflow.domain.model.IdempotencyKey("k");
+        var ex = new IdempotentOrderNotActiveException(key, OID);
+        assertThat(ex.key()).isEqualTo(key);
+        assertThat(ex.orderId()).isEqualTo(OID);
+        assertThat(ex).hasMessageContaining("o1").hasMessageContaining("new key");
+    }
+
+    @Test
     void orderEnqueueFailed_created_exposesDetails() {
         var cause = new RuntimeException("x");
         var ex = new OrderEnqueueFailedException(OID, false, cause);

@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.ticketflow.domain.exception.EventNotFoundException;
 import com.ticketflow.domain.exception.IdempotencyKeyReusedException;
+import com.ticketflow.domain.exception.IdempotentOrderNotActiveException;
 import com.ticketflow.domain.exception.InsufficientInventoryException;
 import com.ticketflow.domain.exception.OrderEnqueueFailedException;
 import com.ticketflow.domain.exception.OrderStatusConflictException;
@@ -344,6 +345,32 @@ class RequestPurchaseUseCaseIT {
                 .containsExactly(TicketStatus.RESERVED, TicketStatus.AVAILABLE);
         assertThat(trail.get(1).from()).isEqualTo(TicketStatus.RESERVED);
         assertThat(trail.get(1).reason()).isEqualTo(RequestPurchaseUseCase.PUBLISH_FAILED_REASON);
+    }
+
+    @Test
+    void execute_retryAfterCompensation_sameKeyAndPayload_failsNotActiveWithoutReserving() {
+        var event = newEvent(20);
+        var key = new IdempotencyKey(key());
+        var command = new RequestPurchaseCommand(event, new Quantity(5), key);
+        queue.failing.set(true);
+        StepVerifier.create(useCase.execute(command)).expectError(OrderEnqueueFailedException.class).verify();
+        var before = inventory(event);
+
+        queue.failing.set(false);
+        StepVerifier.create(useCase.execute(command)).expectError(IdempotentOrderNotActiveException.class).verify();
+
+        var after = inventory(event);
+        assertThat(after.available()).isEqualTo(20);
+        assertThat(after.reserved()).isZero();
+        assertThat(after.version()).isEqualTo(before.version());
+        assertInvariant(after);
+        assertThat(queue.published).isEmpty();
+        var id = OrderId.fromIdempotencyKey(key);
+        assertThat(orders.findById(id).block(WAIT).status()).isEqualTo(TicketStatus.AVAILABLE);
+
+        // Different payload on the consumed key still reports reuse, not "not active".
+        StepVerifier.create(useCase.execute(new RequestPurchaseCommand(event, new Quantity(6), key)))
+                .expectError(IdempotencyKeyReusedException.class).verify();
     }
 
     @Test

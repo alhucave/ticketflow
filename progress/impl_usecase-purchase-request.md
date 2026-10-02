@@ -64,3 +64,15 @@ BUILD SUCCESSFUL in 36s
 ==> init.sh OK
 ```
 Line coverage with integration: 781/786 (99%); plain run passed the 90% gate. `RequestPurchaseUseCaseIT` ran 5 consecutive times green after fixing the test's fixed-clock ordering issue (see caveat 4).
+
+## Round 2 (CHANGES_REQUESTED fixes)
+
+Review items addressed:
+1. `replay()` no longer returns an AVAILABLE (compensated/expired) order as success. Option (a): new `IdempotentOrderNotActiveException` (domain.exception; key + orderId; meaning: the order of this key was released, retry with a new Idempotency-Key). Payload-mismatch check runs first, so different payload => `IdempotencyKeyReusedException`; same payload + AVAILABLE => `IdempotentOrderNotActiveException`; otherwise replay as before. No reservation, no publish, no release on this path.
+2. `docs/architecture.md` (Flujo de compra) documents the consumed-key behaviour next to the known limitation.
+
+Tests added: unit `execute_orderAlreadyExistsButReleased_...` and `execute_releasedOrderWithDifferentPayload_keyReusedTakesPrecedence`; `DomainExceptionsTest.idempotentOrderNotActive_created_exposesDetails`; IT `execute_retryAfterCompensation_sameKeyAndPayload_failsNotActiveWithoutReserving` (publish fails -> compensated; queue recovers; retry same key/payload -> typed exception; inventory 20/0 and version unchanged, invariant holds, nothing published, order AVAILABLE; different payload on the key still gives key-reused).
+
+Non-blocking notes for later features (not implemented here): web layer F-023 must map `IdempotentOrderNotActiveException` to a non-202 error (e.g. 409) and not cancel the pipeline on client disconnect; F-015 must remove the always-error fallback publisher in UseCaseConfig; F-016 consumer must ignore messages whose order is not RESERVED.
+
+Verification: `./init.sh` -> BUILD SUCCESSFUL, `==> init.sh OK`; `INCLUDE_INTEGRATION=true ./init.sh` (Colima env) -> BUILD SUCCESSFUL, `==> init.sh OK`.
