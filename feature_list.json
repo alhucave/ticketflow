@@ -3,7 +3,7 @@
     "id": "F-001",
     "name": "gradle-bootstrap",
     "phase": 1,
-    "status": "pending",
+    "status": "done",
     "depends_on": [],
     "issue": 1,
     "title": "Gradle project bootstrap",
