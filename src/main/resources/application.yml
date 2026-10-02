@@ -6,3 +6,7 @@ management:
     web:
       exposure:
         include: health
+ticketflow:
+  sqs:
+    # Overridable from the environment; endpoint/credentials are set only for local development.
+    orders-queue-name: ${ORDERS_QUEUE_NAME:orders}

@@ -14,7 +14,6 @@ import com.ticketflow.domain.model.IdempotencyKey;
 import com.ticketflow.domain.model.Quantity;
 import com.ticketflow.usecase.RequestPurchaseCommand;
 import java.time.Duration;
-import org.springframework.beans.factory.ObjectProvider;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 import org.junit.jupiter.api.Test;
@@ -38,15 +37,6 @@ class UseCaseConfigTest {
                 mock(OrderPlacementRepository.class), config.clock())).isNotNull();
     }
 
-    @SuppressWarnings("unchecked")
-    private static ObjectProvider<OrderQueuePublisher> provider(OrderQueuePublisher publisher) {
-        ObjectProvider<OrderQueuePublisher> provider = mock(ObjectProvider.class);
-        org.mockito.Mockito.when(provider.getIfAvailable(org.mockito.ArgumentMatchers.any()))
-                .thenAnswer(i -> publisher != null ? publisher
-                        : ((java.util.function.Supplier<OrderQueuePublisher>) i.getArgument(0)).get());
-        return provider;
-    }
-
     @Test
     void requestPurchaseUseCase_withPublisher_isBuiltAndUsesIt() {
         var placement = mock(OrderPlacementRepository.class);
@@ -54,28 +44,11 @@ class UseCaseConfigTest {
         org.mockito.Mockito.when(placement.placeReservation(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
                 .thenAnswer(i -> Mono.just(i.getArgument(0)));
         org.mockito.Mockito.when(publisher.publish(org.mockito.ArgumentMatchers.any())).thenReturn(Mono.empty());
-        var useCase = config.requestPurchaseUseCase(placement, mock(OrderRepository.class), provider(publisher),
+        var useCase = config.requestPurchaseUseCase(placement, mock(OrderRepository.class), publisher,
                 config.clock(), Duration.ofMinutes(10));
 
         StepVerifier.create(useCase.execute(new RequestPurchaseCommand(
                         new EventId("e"), new Quantity(1), new IdempotencyKey("k"))))
                 .expectNextCount(1).verifyComplete();
-    }
-
-    @Test
-    void requestPurchaseUseCase_withoutPublisher_failsLoudlyAndCompensates() {
-        var placement = mock(OrderPlacementRepository.class);
-        org.mockito.Mockito.when(placement.placeReservation(org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
-                .thenAnswer(i -> Mono.just(i.getArgument(0)));
-        org.mockito.Mockito.when(placement.releaseReservation(org.mockito.ArgumentMatchers.any(),
-                        org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any(),
-                        org.mockito.ArgumentMatchers.any(), org.mockito.ArgumentMatchers.any()))
-                .thenReturn(Mono.empty());
-        var useCase = config.requestPurchaseUseCase(placement, mock(OrderRepository.class), provider(null),
-                config.clock(), Duration.ofMinutes(10));
-
-        StepVerifier.create(useCase.execute(new RequestPurchaseCommand(
-                        new EventId("e"), new Quantity(1), new IdempotencyKey("k"))))
-                .expectError(com.ticketflow.domain.exception.OrderEnqueueFailedException.class).verify();
     }
 }
