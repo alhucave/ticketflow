@@ -1,6 +1,11 @@
 [
   {
-    "id": "F-001", "name": "gradle-bootstrap", "phase": 1, "status": "pending", "depends_on": [], "issue": null,
+    "id": "F-001",
+    "name": "gradle-bootstrap",
+    "phase": 1,
+    "status": "pending",
+    "depends_on": [],
+    "issue": 1,
     "title": "Gradle project bootstrap",
     "description": "Create the Gradle (Kotlin DSL) project with Java 25 toolchain, Spring Boot 4.x, WebFlux, AWS SDK v2 (dynamodb-enhanced async, sqs), JUnit 5, Mockito, reactor-test, Testcontainers and JaCoCo. Create the com.ticketflow package skeleton (domain, usecase, infrastructure) and a health endpoint.",
     "acceptance": [
@@ -11,7 +16,14 @@
     ]
   },
   {
-    "id": "F-002", "name": "docker-compose-infra", "phase": 1, "status": "pending", "depends_on": ["F-001"], "issue": null,
+    "id": "F-002",
+    "name": "docker-compose-infra",
+    "phase": 1,
+    "status": "pending",
+    "depends_on": [
+      "F-001"
+    ],
+    "issue": 2,
     "title": "Dockerfile and docker-compose with DynamoDB Local and LocalStack SQS",
     "description": "Multi-stage Dockerfile for the app (non-root user) and docker-compose.yml that starts the app, DynamoDB Local and LocalStack (SQS). Include an init script that creates the queues (orders queue + DLQ). Provide .env.example.",
     "acceptance": [
@@ -22,7 +34,14 @@
     ]
   },
   {
-    "id": "F-003", "name": "ci-and-ghcr", "phase": 1, "status": "pending", "depends_on": ["F-001"], "issue": null,
+    "id": "F-003",
+    "name": "ci-and-ghcr",
+    "phase": 1,
+    "status": "pending",
+    "depends_on": [
+      "F-001"
+    ],
+    "issue": 3,
     "title": "GitHub Actions CI and ghcr.io image publishing",
     "description": "Workflow ci.yml running ./init.sh on every PR and push to main (Java 25, Docker available for Testcontainers). Workflow release.yml that builds and pushes ghcr.io/alhucave/ticketflow on tags v*.",
     "acceptance": [
@@ -33,7 +52,14 @@
     ]
   },
   {
-    "id": "F-004", "name": "domain-ticket-state-machine", "phase": 2, "status": "pending", "depends_on": ["F-001"], "issue": null,
+    "id": "F-004",
+    "name": "domain-ticket-state-machine",
+    "phase": 2,
+    "status": "pending",
+    "depends_on": [
+      "F-001"
+    ],
+    "issue": 4,
     "title": "Ticket status enum and transition rules",
     "description": "Implement TicketStatus (AVAILABLE, RESERVED, PENDING_CONFIRMATION, SOLD, COMPLIMENTARY) with a pure transition function using pattern matching and a domain exception for invalid transitions. Include flags: isFinal, isSale (only SOLD).",
     "acceptance": [
@@ -44,7 +70,14 @@
     ]
   },
   {
-    "id": "F-005", "name": "domain-models-and-ports", "phase": 2, "status": "pending", "depends_on": ["F-004"], "issue": null,
+    "id": "F-005",
+    "name": "domain-models-and-ports",
+    "phase": 2,
+    "status": "pending",
+    "depends_on": [
+      "F-004"
+    ],
+    "issue": 5,
     "title": "Domain records, errors and repository ports",
     "description": "Create records Event, Inventory (counters + version), Order, OrderAuditEntry, value objects (EventId, OrderId, Quantity, IdempotencyKey) and ports EventRepository, InventoryRepository, OrderRepository, OrderQueuePublisher returning Mono/Flux. Define domain exceptions (EventNotFound, InsufficientInventory, OrderNotFound, ReservationExpired, ConcurrentModification).",
     "acceptance": [
@@ -54,7 +87,15 @@
     ]
   },
   {
-    "id": "F-006", "name": "dynamodb-config-tables", "phase": 3, "status": "pending", "depends_on": ["F-002", "F-005"], "issue": null,
+    "id": "F-006",
+    "name": "dynamodb-config-tables",
+    "phase": 3,
+    "status": "pending",
+    "depends_on": [
+      "F-002",
+      "F-005"
+    ],
+    "issue": 6,
     "title": "DynamoDB async client configuration and table provisioning",
     "description": "Configure DynamoDbEnhancedAsyncClient with endpoint override for local, region and credentials via properties/env. Provision tables events, inventory, orders (with GSIs) and order_audit on startup when enabled by property.",
     "acceptance": [
@@ -64,7 +105,14 @@
     ]
   },
   {
-    "id": "F-007", "name": "event-repository", "phase": 3, "status": "pending", "depends_on": ["F-006"], "issue": null,
+    "id": "F-007",
+    "name": "event-repository",
+    "phase": 3,
+    "status": "pending",
+    "depends_on": [
+      "F-006"
+    ],
+    "issue": 7,
     "title": "DynamoDB EventRepository adapter",
     "description": "Implement EventRepository: save event together with its initial inventory (all capacity as available) and find by id / list.",
     "acceptance": [
@@ -74,7 +122,14 @@
     ]
   },
   {
-    "id": "F-008", "name": "inventory-repository", "phase": 3, "status": "pending", "depends_on": ["F-006"], "issue": null,
+    "id": "F-008",
+    "name": "inventory-repository",
+    "phase": 3,
+    "status": "pending",
+    "depends_on": [
+      "F-006"
+    ],
+    "issue": 8,
     "title": "Inventory repository with conditional writes",
     "description": "Implement InventoryRepository operations reserve(eventId, qty), confirmSale, release, issueComplimentary, each as a single UpdateItem with ConditionExpression and version increment. Map ConditionalCheckFailed to InsufficientInventory or ConcurrentModification. Retry with backoff only on transient errors.",
     "acceptance": [
@@ -85,7 +140,14 @@
     ]
   },
   {
-    "id": "F-009", "name": "order-repository", "phase": 3, "status": "pending", "depends_on": ["F-006"], "issue": null,
+    "id": "F-009",
+    "name": "order-repository",
+    "phase": 3,
+    "status": "pending",
+    "depends_on": [
+      "F-006"
+    ],
+    "issue": 9,
     "title": "Order repository with audit trail and idempotency lookup",
     "description": "Implement OrderRepository: create, findById, findByIdempotencyKey (GSI), transition status with a conditional write on the expected current status, append audit entries, and query expired reservations (GSI status + expiresAt).",
     "acceptance": [
@@ -96,7 +158,14 @@
     ]
   },
   {
-    "id": "F-010", "name": "usecase-events", "phase": 4, "status": "pending", "depends_on": ["F-007"], "issue": null,
+    "id": "F-010",
+    "name": "usecase-events",
+    "phase": 4,
+    "status": "pending",
+    "depends_on": [
+      "F-007"
+    ],
+    "issue": 10,
     "title": "Create and query events use cases",
     "description": "CreateEventUseCase, GetEventUseCase, ListEventsUseCase with validation (name, date in the future, venue, capacity > 0).",
     "acceptance": [
@@ -106,7 +175,15 @@
     ]
   },
   {
-    "id": "F-011", "name": "usecase-availability", "phase": 4, "status": "pending", "depends_on": ["F-007", "F-008"], "issue": null,
+    "id": "F-011",
+    "name": "usecase-availability",
+    "phase": 4,
+    "status": "pending",
+    "depends_on": [
+      "F-007",
+      "F-008"
+    ],
+    "issue": 11,
     "title": "Real-time availability use case",
     "description": "GetAvailabilityUseCase returning a snapshot (available, reserved, pendingConfirmation, sold, complimentary) and a Flux stream variant that emits on changes (polling interval configurable).",
     "acceptance": [
@@ -116,7 +193,15 @@
     ]
   },
   {
-    "id": "F-012", "name": "usecase-purchase-request", "phase": 4, "status": "pending", "depends_on": ["F-008", "F-009"], "issue": null,
+    "id": "F-012",
+    "name": "usecase-purchase-request",
+    "phase": 4,
+    "status": "pending",
+    "depends_on": [
+      "F-008",
+      "F-009"
+    ],
+    "issue": 12,
     "title": "Purchase request use case (reserve + enqueue)",
     "description": "RequestPurchaseUseCase: validate, honor Idempotency-Key (return existing order), atomically reserve inventory with 10-minute expiry, persist order as RESERVED, publish to the order queue and return orderId immediately. If publishing fails after reserving, release the reservation and mark the order failed.",
     "acceptance": [
@@ -127,7 +212,14 @@
     ]
   },
   {
-    "id": "F-013", "name": "usecase-order-status", "phase": 4, "status": "pending", "depends_on": ["F-009"], "issue": null,
+    "id": "F-013",
+    "name": "usecase-order-status",
+    "phase": 4,
+    "status": "pending",
+    "depends_on": [
+      "F-009"
+    ],
+    "issue": 13,
     "title": "Order status query use case",
     "description": "GetOrderStatusUseCase returning current status (any of the five states), quantity, event and expiry; OrderNotFound otherwise.",
     "acceptance": [
@@ -137,7 +229,15 @@
     ]
   },
   {
-    "id": "F-014", "name": "usecase-process-order", "phase": 4, "status": "pending", "depends_on": ["F-008", "F-009"], "issue": null,
+    "id": "F-014",
+    "name": "usecase-process-order",
+    "phase": 4,
+    "status": "pending",
+    "depends_on": [
+      "F-008",
+      "F-009"
+    ],
+    "issue": 14,
     "title": "Process order use case (consumer logic)",
     "description": "ProcessOrderUseCase: idempotent handling of an order message: RESERVED -> PENDING_CONFIRMATION -> SOLD, validating the reservation is still valid (not expired) and real inventory. Reprocessing a SOLD order is a no-op. Expired reservations end released.",
     "acceptance": [
@@ -148,7 +248,15 @@
     ]
   },
   {
-    "id": "F-015", "name": "sqs-publisher", "phase": 5, "status": "pending", "depends_on": ["F-002", "F-005"], "issue": null,
+    "id": "F-015",
+    "name": "sqs-publisher",
+    "phase": 5,
+    "status": "pending",
+    "depends_on": [
+      "F-002",
+      "F-005"
+    ],
+    "issue": 15,
     "title": "SQS order queue publisher adapter",
     "description": "Implement OrderQueuePublisher with the AWS SDK v2 async SQS client. Message body is a versioned JSON record with orderId; include message attributes for tracing. Retry with backoff on transient errors.",
     "acceptance": [
@@ -158,7 +266,15 @@
     ]
   },
   {
-    "id": "F-016", "name": "sqs-consumer", "phase": 5, "status": "pending", "depends_on": ["F-014", "F-015"], "issue": null,
+    "id": "F-016",
+    "name": "sqs-consumer",
+    "phase": 5,
+    "status": "pending",
+    "depends_on": [
+      "F-014",
+      "F-015"
+    ],
+    "issue": 16,
     "title": "SQS consumer with at-least-once semantics and DLQ",
     "description": "Reactive long-polling consumer that calls ProcessOrderUseCase and deletes the message only after success. Configure visibility timeout, maxReceiveCount and DLQ redrive. Bounded concurrency; graceful shutdown.",
     "acceptance": [
@@ -169,7 +285,15 @@
     ]
   },
   {
-    "id": "F-017", "name": "reservation-expiration-job", "phase": 6, "status": "pending", "depends_on": ["F-008", "F-009"], "issue": null,
+    "id": "F-017",
+    "name": "reservation-expiration-job",
+    "phase": 6,
+    "status": "pending",
+    "depends_on": [
+      "F-008",
+      "F-009"
+    ],
+    "issue": 17,
     "title": "Scheduled release of expired reservations",
     "description": "Reactive scheduler that periodically finds expired reservations and, per order, atomically transitions it to expired and returns inventory to available. Safe under multiple app instances (conditional transition ensures one winner).",
     "acceptance": [
@@ -180,7 +304,14 @@
     ]
   },
   {
-    "id": "F-018", "name": "web-events-api", "phase": 7, "status": "pending", "depends_on": ["F-010"], "issue": null,
+    "id": "F-018",
+    "name": "web-events-api",
+    "phase": 7,
+    "status": "pending",
+    "depends_on": [
+      "F-010"
+    ],
+    "issue": 18,
     "title": "Events REST endpoints",
     "description": "POST /events, GET /events/{id}, GET /events with request/response DTOs as records and bean validation.",
     "acceptance": [
@@ -191,7 +322,16 @@
     ]
   },
   {
-    "id": "F-019", "name": "web-orders-availability-api", "phase": 7, "status": "pending", "depends_on": ["F-011", "F-012", "F-013"], "issue": null,
+    "id": "F-019",
+    "name": "web-orders-availability-api",
+    "phase": 7,
+    "status": "pending",
+    "depends_on": [
+      "F-011",
+      "F-012",
+      "F-013"
+    ],
+    "issue": 19,
     "title": "Orders and availability REST endpoints",
     "description": "POST /orders (Idempotency-Key header, returns 202 + orderId), GET /orders/{id}, GET /events/{id}/availability and GET /events/{id}/availability/stream (text/event-stream).",
     "acceptance": [
@@ -202,7 +342,14 @@
     ]
   },
   {
-    "id": "F-020", "name": "web-error-handling", "phase": 7, "status": "pending", "depends_on": ["F-018"], "issue": null,
+    "id": "F-020",
+    "name": "web-error-handling",
+    "phase": 7,
+    "status": "pending",
+    "depends_on": [
+      "F-018"
+    ],
+    "issue": 20,
     "title": "Global reactive error handling",
     "description": "Central handler mapping domain exceptions to RFC 7807 problem details: 404, 409 (insufficient inventory, concurrent modification), 410 (expired reservation), 400, 429 and 500 without leaking internals.",
     "acceptance": [
@@ -212,7 +359,15 @@
     ]
   },
   {
-    "id": "F-021", "name": "complimentary-issuance", "phase": 7, "status": "pending", "depends_on": ["F-008", "F-019"], "issue": null,
+    "id": "F-021",
+    "name": "complimentary-issuance",
+    "phase": 7,
+    "status": "pending",
+    "depends_on": [
+      "F-008",
+      "F-019"
+    ],
+    "issue": 21,
     "title": "Issue complimentary tickets",
     "description": "Use case and endpoint POST /events/{id}/complimentary that moves tickets AVAILABLE -> COMPLIMENTARY. Final state, excluded from sales totals.",
     "acceptance": [
@@ -222,7 +377,16 @@
     ]
   },
   {
-    "id": "F-022", "name": "concurrency-tests", "phase": 8, "status": "pending", "depends_on": ["F-019", "F-016", "F-017"], "issue": null,
+    "id": "F-022",
+    "name": "concurrency-tests",
+    "phase": 8,
+    "status": "pending",
+    "depends_on": [
+      "F-019",
+      "F-016",
+      "F-017"
+    ],
+    "issue": 22,
     "title": "End-to-end concurrency and consistency tests",
     "description": "Integration tests that fire many parallel purchase requests over limited capacity and assert no oversell, correct counters, no duplicate orders for the same Idempotency-Key and correct release after expiry.",
     "acceptance": [
@@ -233,7 +397,14 @@
     ]
   },
   {
-    "id": "F-023", "name": "security-hardening", "phase": 8, "status": "pending", "depends_on": ["F-019"], "issue": null,
+    "id": "F-023",
+    "name": "security-hardening",
+    "phase": 8,
+    "status": "pending",
+    "depends_on": [
+      "F-019"
+    ],
+    "issue": 23,
     "title": "Security hardening",
     "description": "Secrets only via env vars, request size limits, per-client rate limiting on POST /orders, max quantity per order, input validation, idempotency protection against malicious retries, dependency vulnerability scan in CI, and non-root, minimal runtime image.",
     "acceptance": [
@@ -244,7 +415,14 @@
     ]
   },
   {
-    "id": "F-024", "name": "observability", "phase": 8, "status": "pending", "depends_on": ["F-019"], "issue": null,
+    "id": "F-024",
+    "name": "observability",
+    "phase": 8,
+    "status": "pending",
+    "depends_on": [
+      "F-019"
+    ],
+    "issue": 24,
     "title": "Metrics, structured logging and tracing hooks",
     "description": "Actuator + Micrometer metrics (orders created/sold/expired, queue lag, conditional-write conflicts), structured JSON logs with correlation id, readiness/liveness probes.",
     "acceptance": [
@@ -254,7 +432,14 @@
     ]
   },
   {
-    "id": "F-025", "name": "docs-and-requests", "phase": 8, "status": "pending", "depends_on": ["F-022"], "issue": null,
+    "id": "F-025",
+    "name": "docs-and-requests",
+    "phase": 8,
+    "status": "pending",
+    "depends_on": [
+      "F-022"
+    ],
+    "issue": 25,
     "title": "README, diagrams and request collection",
     "description": "Complete README (solution, install, Docker commands, architectural decisions, endpoint examples), Mermaid architecture and sequence diagrams explaining component interactions, and a Postman/Insomnia or curl collection demonstrating the main flows.",
     "acceptance": [
@@ -265,7 +450,14 @@
     ]
   },
   {
-    "id": "F-026", "name": "aws-cloud-native-docs", "phase": 9, "status": "pending", "depends_on": ["F-025"], "issue": null,
+    "id": "F-026",
+    "name": "aws-cloud-native-docs",
+    "phase": 9,
+    "status": "pending",
+    "depends_on": [
+      "F-025"
+    ],
+    "issue": 26,
     "title": "AWS cloud-native documentation (deferred)",
     "description": "Document the target AWS deployment (ECS Fargate, DynamoDB, SQS+DLQ, Secrets Manager, CloudWatch, IaC), cloud security best practices, cost estimate, observability and governance. Documentation only, no real deployment.",
     "acceptance": [
