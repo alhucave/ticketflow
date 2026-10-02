@@ -55,7 +55,7 @@
     "id": "F-004",
     "name": "domain-ticket-state-machine",
     "phase": 2,
-    "status": "pending",
+    "status": "in_progress",
     "depends_on": [
       "F-001"
     ],
