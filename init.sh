@@ -24,6 +24,13 @@ if [ ! -x ./gradlew ]; then
   exit 0
 fi
 
+# Integration tests need Docker: opt in with INCLUDE_INTEGRATION=true (CI does).
+GRADLE_ARGS=()
+if [ "${INCLUDE_INTEGRATION:-false}" = "true" ]; then
+  GRADLE_ARGS+=("-PincludeIntegration")
+  echo "==> Integration tests enabled (INCLUDE_INTEGRATION=true)"
+fi
+
 echo "==> Building and verifying (tests + 90% coverage gate)"
-./gradlew --no-daemon clean build jacocoTestReport jacocoTestCoverageVerification
+./gradlew --no-daemon ${GRADLE_ARGS[@]+"${GRADLE_ARGS[@]}"} clean build jacocoTestReport jacocoTestCoverageVerification
 echo "==> init.sh OK"
