@@ -196,7 +196,7 @@
     "id": "F-012",
     "name": "usecase-purchase-request",
     "phase": 4,
-    "status": "in_progress",
+    "status": "done",
     "depends_on": [
       "F-008",
       "F-009"
@@ -239,7 +239,7 @@
     ],
     "issue": 14,
     "title": "Process order use case (consumer logic)",
-    "description": "ProcessOrderUseCase: idempotent handling of an order message: RESERVED -> PENDING_CONFIRMATION -> SOLD, validating the reservation is still valid (not expired) and real inventory. Reprocessing a SOLD order is a no-op. Expired reservations end released. NOTE (from F-008 review): InventoryRepository has no operations for the pendingConfirmation counter yet (reserve, confirmSale, release, issueComplimentary only); extend the port and adapter (e.g. markPending: reserved -> pendingConfirmation, and confirm/release from pendingConfirmation) as part of this feature. NOTES (from F-009 review): treat OrderStatusConflictException and OrderNotFoundException from reprocessing as benign (idempotent redelivery; GSI reads are eventually consistent). Order transition and inventory update are two writes: order them so a crash cannot leave a sale without inventory movement (or document the reconciliation).",
+    "description": "ProcessOrderUseCase: idempotent handling of an order message: RESERVED -> PENDING_CONFIRMATION -> SOLD, validating the reservation is still valid (not expired) and real inventory. Reprocessing a SOLD order is a no-op. Expired reservations end released. NOTE (from F-008 review): InventoryRepository has no operations for the pendingConfirmation counter yet (reserve, confirmSale, release, issueComplimentary only); extend the port and adapter (e.g. markPending: reserved -> pendingConfirmation, and confirm/release from pendingConfirmation) as part of this feature. NOTES (from F-009 review): treat OrderStatusConflictException and OrderNotFoundException from reprocessing as benign (idempotent redelivery; GSI reads are eventually consistent). Order transition and inventory update are two writes: order them so a crash cannot leave a sale without inventory movement (or document the reconciliation). NOTE (from F-012 review): reuse OrderPlacementRepository.releaseReservation for the expired-reservation path; releaseReservation accepts PENDING_CONFIRMATION.",
     "acceptance": [
       "Processing the same message twice yields the same final state and counters",
       "Expired reservation is not sold and its inventory is released",
@@ -258,7 +258,7 @@
     ],
     "issue": 15,
     "title": "SQS order queue publisher adapter",
-    "description": "Implement OrderQueuePublisher with the AWS SDK v2 async SQS client. Message body is a versioned JSON record with orderId; include message attributes for tracing. Retry with backoff on transient errors.",
+    "description": "Implement OrderQueuePublisher with the AWS SDK v2 async SQS client. Message body is a versioned JSON record with orderId; include message attributes for tracing. Retry with backoff on transient errors. NOTE (from F-012 review): UseCaseConfig currently wires an always-error OrderQueuePublisher fallback until the SQS adapter exists; remove that fallback and wire the real SQS publisher here.",
     "acceptance": [
       "Publishing returns after SQS acknowledges the message",
       "Integration test with LocalStack verifies the message arrives",
@@ -276,7 +276,7 @@
     ],
     "issue": 16,
     "title": "SQS consumer with at-least-once semantics and DLQ",
-    "description": "Reactive long-polling consumer that calls ProcessOrderUseCase and deletes the message only after success. Configure visibility timeout, maxReceiveCount and DLQ redrive. Bounded concurrency; graceful shutdown.",
+    "description": "Reactive long-polling consumer that calls ProcessOrderUseCase and deletes the message only after success. Configure visibility timeout, maxReceiveCount and DLQ redrive. Bounded concurrency; graceful shutdown. NOTE (from F-012 review): if the process dies between the placement transaction and the publish, an order stays RESERVED with no queue message (reclaimed on expiry); also the consumer must ignore messages whose order is no longer RESERVED (e.g. released after a failed publish).",
     "acceptance": [
       "Message is deleted only after successful processing",
       "Failed processing makes the message reappear and, after maxReceiveCount, land in the DLQ (integration test)",
@@ -295,7 +295,7 @@
     ],
     "issue": 17,
     "title": "Scheduled release of expired reservations",
-    "description": "Reactive scheduler that periodically finds expired reservations and, per order, atomically transitions it to expired and returns inventory to available. Safe under multiple app instances (conditional transition ensures one winner). NOTES (from F-009 review): expired reservations end in AVAILABLE (no EXPIRED state; spec: tickets return to available inventory), with the reason in the audit entry. findExpiredReservations is GSI-based (eventually consistent): rely on OrderRepository.transition's conditional write so concurrent sweepers have a single winner and treat OrderStatusConflictException as benign.",
+    "description": "Reactive scheduler that periodically finds expired reservations and, per order, atomically transitions it to expired and returns inventory to available. Safe under multiple app instances (conditional transition ensures one winner). NOTES (from F-009 review): expired reservations end in AVAILABLE (no EXPIRED state; spec: tickets return to available inventory), with the reason in the audit entry. findExpiredReservations is GSI-based (eventually consistent): rely on OrderRepository.transition's conditional write so concurrent sweepers have a single winner and treat OrderStatusConflictException as benign. NOTE (from F-012 review): use OrderPlacementRepository.releaseReservation (single TransactWriteItems: conditional order update + audit + inventory reserved->available; accepts RESERVED and PENDING_CONFIRMATION) for expiry, instead of separate writes. An order whose publish never happened stays RESERVED and is reclaimed here.",
     "acceptance": [
       "Expired reservations return their quantity to available exactly once",
       "Non-expired reservations are untouched",
@@ -333,7 +333,7 @@
     ],
     "issue": 19,
     "title": "Orders and availability REST endpoints",
-    "description": "POST /orders (Idempotency-Key header, returns 202 + orderId), GET /orders/{id}, GET /events/{id}/availability and GET /events/{id}/availability/stream (text/event-stream). NOTE (from F-011 review): GetAvailabilityUseCase.stream ends with an error once DynamoDB transient-error retries are exhausted; the SSE endpoint must resubscribe/retry with backoff (e.g. Flux.retryWhen) and never leak internal error details to the client.",
+    "description": "POST /orders (Idempotency-Key header, returns 202 + orderId), GET /orders/{id}, GET /events/{id}/availability and GET /events/{id}/availability/stream (text/event-stream). NOTE (from F-011 review): GetAvailabilityUseCase.stream ends with an error once DynamoDB transient-error retries are exhausted; the SSE endpoint must resubscribe/retry with backoff (e.g. Flux.retryWhen) and never leak internal error details to the client. NOTE (from F-012 review): map IdempotentOrderNotActiveException (replayed key whose order was released) and IdempotencyKeyReusedException to non-202 responses (409); OrderEnqueueFailedException to a 5xx/503 telling the client to retry with a new Idempotency-Key.",
     "acceptance": [
       "POST /orders returns 202 immediately with orderId",
       "Missing or malformed Idempotency-Key returns 400",
@@ -406,7 +406,7 @@
     ],
     "issue": 23,
     "title": "Security hardening",
-    "description": "Secrets only via env vars, request size limits, per-client rate limiting on POST /orders, max quantity per order, input validation, idempotency protection against malicious retries, dependency vulnerability scan in CI, and non-root, minimal runtime image.",
+    "description": "Secrets only via env vars, request size limits, per-client rate limiting on POST /orders, max quantity per order, input validation, idempotency protection against malicious retries, dependency vulnerability scan in CI, and non-root, minimal runtime image. NOTE (from F-012 review): scope the Idempotency-Key per principal/client so one client cannot collide with or probe another's orders (OrderId is derived from the key alone); do not cancel the purchase pipeline on client disconnect (e.g. detach the reserve/publish chain from the request subscription).",
     "acceptance": [
       "Rate limit returns 429 when exceeded (tested)",
       "Max quantity per order enforced",
