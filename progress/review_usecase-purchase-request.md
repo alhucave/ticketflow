@@ -46,3 +46,24 @@ The design is sound and the adapter/use-case contracts match; there is one funct
   - Audit SK ordering with identical timestamps: only affects fixed clocks.
 - If the publish actually succeeded but reported a timeout, the message exists for an order that is now AVAILABLE; the F-015/F-016 consumer must ignore messages whose order is not RESERVED (it already must be idempotent). Worth a line in F-016 notes.
 - `releaseReservation` after an ambiguous commit followed by retry yields OrderStatusConflict, so `reservationReleased=false` may be reported although the release happened; harmless (the flag only means "not confirmed") but the log message "expiry sweep will reclaim it" could be misleading.
+
+---
+
+# Round 2
+
+**Veredicto:** APPROVED
+
+Reviewed at commit cff19e3. `./init.sh` green and `INCLUDE_INTEGRATION=true ./init.sh` (Colima env) green, both run independently.
+
+## Verification of previous findings
+1. Blocking item (replay of a released order): fixed. `RequestPurchaseUseCase.replay` checks the payload mismatch first (`IdempotencyKeyReusedException`), then `existing.status() == AVAILABLE` -> `IdempotentOrderNotActiveException`; otherwise replays as before. No reserve, publish or release on this path, so no new oversell or leak window.
+2. Tests: unit `execute_orderAlreadyExistsButReleased_...` and `execute_releasedOrderWithDifferentPayload_keyReusedTakesPrecedence`; `DomainExceptionsTest`; IT `execute_retryAfterCompensation_sameKeyAndPayload_failsNotActiveWithoutReserving` (publish fails, queue recovers, retry fails typed, inventory 20/0 with unchanged version, invariant holds, nothing published, order AVAILABLE, different payload still key-reused). Deterministic: fake queue toggle, no sleeps or polling. Not flaky.
+3. Docs: docs/architecture.md documents the consumed-key behavior next to the known limitation (item 2 resolved).
+4. No regressions: the rest of the suite and the coverage gate pass.
+
+## Checkpoints
+- C1 to C12: [x] all met. C3 now fully covered (retry-after-compensation); C11 docs updated; C12 IT still uses the real adapters on DynamoDB Local and the replay path relies on the same adapter contract validated in round 1.
+
+## Observaciones no bloqueantes (carry-over)
+- F-023 must map `IdempotentOrderNotActiveException` to a non-202 (e.g. 409) and not cancel the pipeline on client disconnect.
+- F-015 must remove the always-error fallback publisher in UseCaseConfig; F-016 consumer must ignore messages whose order is not RESERVED.
