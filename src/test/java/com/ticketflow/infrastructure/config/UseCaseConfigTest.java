@@ -32,6 +32,7 @@ class UseCaseConfigTest {
         assertThat(config.createEventUseCase(events, ids, config.clock())).isNotNull();
         assertThat(config.getEventUseCase(events, inventories)).isNotNull();
         assertThat(config.listEventsUseCase(events)).isNotNull();
+        assertThat(config.getOrderStatusUseCase(mock(OrderRepository.class))).isNotNull();
     }
 
     @SuppressWarnings("unchecked")
