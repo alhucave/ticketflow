@@ -46,6 +46,12 @@ services:
       AWS_ENDPOINT_URL_DYNAMODB: http://dynamodb:8000
       AWS_ENDPOINT_URL_SQS: http://localstack:4566
       ORDERS_QUEUE_NAME: ${ORDERS_QUEUE_NAME:-orders}
+      # Create DynamoDB tables and GSIs at startup (idempotent).
+      TICKETFLOW_DYNAMODB_PROVISIONING_ENABLED: "true"
+      TICKETFLOW_DYNAMODB_ENDPOINT: http://dynamodb:8000
+      TICKETFLOW_DYNAMODB_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-test}
+      TICKETFLOW_DYNAMODB_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-test}
+      TICKETFLOW_DYNAMODB_REGION: ${AWS_REGION:-us-east-1}
     depends_on:
       dynamodb:
         condition: service_healthy

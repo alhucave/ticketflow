@@ -90,7 +90,7 @@
     "id": "F-006",
     "name": "dynamodb-config-tables",
     "phase": 3,
-    "status": "pending",
+    "status": "done",
     "depends_on": [
       "F-002",
       "F-005"

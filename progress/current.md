@@ -1,5 +1,5 @@
 # Estado actual
 
 Feature en curso: ninguna
-Ultimas completadas: F-001 a F-005 (APPROVED)
-Siguiente: F-006 — dynamodb-config-tables (Fase 3, persistencia)
+Ultimas completadas: F-001 a F-006 (APPROVED)
+Siguiente: F-007 — event-repository (y F-008, F-009 en Fase 3)

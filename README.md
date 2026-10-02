@@ -5,6 +5,12 @@ Plataforma reactiva de procesamiento de eventos de ticketing (Java 25, Spring Bo
 ## Verificación y CI
 
 - `./init.sh` ejecuta build, tests y la barrera de cobertura (90%). Las pruebas de integración (Docker) se activan con `INCLUDE_INTEGRATION=true ./init.sh`.
+- Con **Colima** (en lugar de Docker Desktop) el socket no está en `/var/run/docker.sock` y Testcontainers no encuentra Docker. Antes de correr las pruebas de integración exporta:
+  ```bash
+  export DOCKER_HOST=unix://$HOME/.colima/default/docker.sock
+  export TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock
+  ```
+  En el CI de GitHub no hace falta.
 - `.github/workflows/ci.yml` corre `./init.sh` en cada PR y push a `main` y sube los reportes como artefacto.
 - `.github/workflows/release.yml` publica `ghcr.io/alhucave/ticketflow` al empujar un tag `v*`.
 
@@ -28,3 +34,9 @@ docker-compose down -v      # detiene y elimina contenedores y volúmenes
 - Verificar colas: `docker-compose exec localstack awslocal sqs list-queues`.
 - Las imágenes tienen tag fijo (sin `:latest`). LocalStack se fija en `4.14.0` porque las versiones `2026.x` exigen `LOCALSTACK_AUTH_TOKEN`.
 - Solo se usan credenciales dummy (`test`/`test`). `.env` está en `.gitignore`; nunca commitees secretos.
+
+## Configuración de DynamoDB
+
+Propiedades `ticketflow.dynamodb.*` (variables de entorno `TICKETFLOW_DYNAMODB_*`): `endpoint` (vacío = AWS real), `region` (por defecto `us-east-1`), `access-key-id` / `secret-access-key` (opcionales y solo para local; sin ellas se usa la cadena de credenciales por defecto de AWS) y `provisioning-enabled` (por defecto `false`; `docker-compose.yml` lo activa).
+
+Con `provisioning-enabled=true`, al arrancar (evento `ApplicationReadyEvent`, sin bloquear) se crean de forma idempotente las tablas `events`, `inventory`, `orders` (GSI `idempotencyKey-index` y `status-reservationExpiresAt-index`) y `order_audit` (PK `orderId`, SK `timestamp`). Las tablas existentes no se modifican; solo se añaden GSIs faltantes.
