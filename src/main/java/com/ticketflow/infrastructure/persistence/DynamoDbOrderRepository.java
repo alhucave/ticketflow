@@ -15,6 +15,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -86,6 +87,7 @@ public class DynamoDbOrderRepository implements OrderRepository {
     private static final String FROM = "from";
     private static final String TO = "to";
     private static final String ACTOR = "actor";
+    private static final String REASON = "reason";
 
     private final DynamoDbAsyncClient client;
     private final Retry retry;
@@ -266,11 +268,11 @@ public class DynamoDbOrderRepository implements OrderRepository {
         return TIMESTAMP.format(instant);
     }
 
-    private static Map<String, AttributeValue> key(OrderId id) {
+    static Map<String, AttributeValue> key(OrderId id) {
         return Map.of(ORDER_ID, s(id.value()));
     }
 
-    private static Map<String, AttributeValue> toItem(Order order) {
+    static Map<String, AttributeValue> toItem(Order order) {
         return Map.of(
                 ORDER_ID, s(order.id().value()),
                 EVENT_ID, s(order.eventId().value()),
@@ -292,13 +294,17 @@ public class DynamoDbOrderRepository implements OrderRepository {
                 Instant.parse(item.get(CREATED_AT).s()));
     }
 
-    private static Map<String, AttributeValue> auditItem(OrderAuditEntry entry) {
-        return Map.of(
+    static Map<String, AttributeValue> auditItem(OrderAuditEntry entry) {
+        Map<String, AttributeValue> item = new HashMap<>(Map.of(
                 ORDER_ID, s(entry.orderId().value()),
                 TIMESTAMP_KEY, s(format(entry.timestamp()) + SORT_KEY_SEPARATOR + UUID.randomUUID()),
                 FROM, s(entry.from().name()),
                 TO, s(entry.to().name()),
-                ACTOR, s(entry.actor()));
+                ACTOR, s(entry.actor())));
+        if (entry.reason() != null) {
+            item.put(REASON, s(entry.reason()));
+        }
+        return item;
     }
 
     private static OrderAuditEntry fromAuditItem(Map<String, AttributeValue> item) {
@@ -308,10 +314,11 @@ public class DynamoDbOrderRepository implements OrderRepository {
                 Instant.parse(sortKey.substring(0, sortKey.indexOf(SORT_KEY_SEPARATOR))),
                 TicketStatus.valueOf(item.get(FROM).s()),
                 TicketStatus.valueOf(item.get(TO).s()),
-                item.get(ACTOR).s());
+                item.get(ACTOR).s(),
+                item.containsKey(REASON) ? item.get(REASON).s() : null);
     }
 
-    private static AttributeValue s(String value) {
+    static AttributeValue s(String value) {
         return AttributeValue.builder().s(value).build();
     }
 }

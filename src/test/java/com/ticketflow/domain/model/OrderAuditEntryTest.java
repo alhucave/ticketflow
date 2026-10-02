@@ -44,4 +44,17 @@ class OrderAuditEntryTest {
         assertThatThrownBy(() -> new OrderAuditEntry(OID, NOW, null, r, "a")).isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new OrderAuditEntry(OID, NOW, a, null, "a")).isInstanceOf(IllegalArgumentException.class);
     }
+
+    @Test
+    void constructor_withReason_keepsReasonAndShortFormHasNone() {
+        var withReason = new OrderAuditEntry(OID, NOW, TicketStatus.RESERVED, TicketStatus.AVAILABLE, "a", "why");
+        assertThat(withReason.reason()).isEqualTo("why");
+        assertThat(new OrderAuditEntry(OID, NOW, TicketStatus.RESERVED, TicketStatus.AVAILABLE, "a").reason()).isNull();
+    }
+
+    @Test
+    void constructor_blankReason_throws() {
+        assertThatThrownBy(() -> new OrderAuditEntry(OID, NOW, TicketStatus.RESERVED, TicketStatus.AVAILABLE, "a", " "))
+                .isInstanceOf(IllegalArgumentException.class);
+    }
 }

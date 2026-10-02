@@ -55,4 +55,14 @@ class ValueObjectsTest {
         assertThatThrownBy(() -> new IdempotencyKey(tooLong)).isInstanceOf(IllegalArgumentException.class);
         assertThat(new IdempotencyKey("k".repeat(IdempotencyKey.MAX_LENGTH)).value()).hasSize(128);
     }
+
+    @Test
+    void orderId_fromIdempotencyKey_isDeterministicVersion5Uuid() {
+        var id = OrderId.fromIdempotencyKey(new IdempotencyKey("abc"));
+        org.assertj.core.api.Assertions.assertThat(OrderId.fromIdempotencyKey(new IdempotencyKey("abc"))).isEqualTo(id);
+        org.assertj.core.api.Assertions.assertThat(OrderId.fromIdempotencyKey(new IdempotencyKey("abd"))).isNotEqualTo(id);
+        var uuid = java.util.UUID.fromString(id.value());
+        org.assertj.core.api.Assertions.assertThat(uuid.version()).isEqualTo(5);
+        org.assertj.core.api.Assertions.assertThat(uuid.variant()).isEqualTo(2);
+    }
 }
