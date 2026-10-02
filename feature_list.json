@@ -37,7 +37,7 @@
     "id": "F-003",
     "name": "ci-and-ghcr",
     "phase": 1,
-    "status": "pending",
+    "status": "done",
     "depends_on": [
       "F-001"
     ],
