@@ -26,9 +26,8 @@ public class UseCaseConfig {
     }
 
     @Bean
-    CreateEventUseCase createEventUseCase(
-            EventRepository events, InventoryRepository inventories, IdGenerator ids, Clock clock) {
-        return new CreateEventUseCase(events, inventories, ids, clock);
+    CreateEventUseCase createEventUseCase(EventRepository events, IdGenerator ids, Clock clock) {
+        return new CreateEventUseCase(events, ids, clock);
     }
 
     @Bean

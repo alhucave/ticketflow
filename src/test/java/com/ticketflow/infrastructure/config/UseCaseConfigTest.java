@@ -18,7 +18,7 @@ class UseCaseConfigTest {
         var ids = config.idGenerator();
         assertThat(ids.nextEventId()).isNotEqualTo(ids.nextEventId());
         assertThat(config.clock()).isNotNull();
-        assertThat(config.createEventUseCase(events, inventories, ids, config.clock())).isNotNull();
+        assertThat(config.createEventUseCase(events, ids, config.clock())).isNotNull();
         assertThat(config.getEventUseCase(events, inventories)).isNotNull();
         assertThat(config.listEventsUseCase(events)).isNotNull();
     }

@@ -3,25 +3,24 @@ package com.ticketflow.usecase;
 import com.ticketflow.domain.exception.InvalidEventException;
 import com.ticketflow.domain.model.Event;
 import com.ticketflow.domain.model.EventId;
-import com.ticketflow.domain.model.Inventory;
 import com.ticketflow.domain.port.EventRepository;
 import com.ticketflow.domain.port.IdGenerator;
-import com.ticketflow.domain.port.InventoryRepository;
 import java.time.Clock;
 import reactor.core.publisher.Mono;
 
-/** Validates and creates an event, then initializes its inventory (available = capacity). */
+/**
+ * Validates and creates an event. {@link EventRepository#save} persists the event together with its
+ * initial inventory (available = capacity, version 0), so this use case never touches inventories.
+ */
 public class CreateEventUseCase {
 
     private final EventRepository events;
-    private final InventoryRepository inventories;
     private final IdGenerator idGenerator;
     private final Clock clock;
 
     public CreateEventUseCase(
-            EventRepository events, InventoryRepository inventories, IdGenerator idGenerator, Clock clock) {
+            EventRepository events, IdGenerator idGenerator, Clock clock) {
         this.events = events;
-        this.inventories = inventories;
         this.idGenerator = idGenerator;
         this.clock = clock;
     }
@@ -31,10 +30,7 @@ public class CreateEventUseCase {
             validate(command);
             EventId id = idGenerator.nextEventId();
             Event event = new Event(id, command.name(), command.startsAt(), command.venue(), command.capacity());
-            return events.save(event)
-                    .flatMap(saved -> inventories
-                            .create(Inventory.initial(saved.id(), saved.capacity()))
-                            .thenReturn(saved));
+            return events.save(event);
         });
     }
 

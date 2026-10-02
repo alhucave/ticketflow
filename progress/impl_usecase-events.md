@@ -17,3 +17,16 @@ Modificados: `docs/architecture.md` (nota de wiring), `feature_list.json` (F-010
 ## Verificacion
 `./init.sh` -> BUILD SUCCESSFUL, `==> init.sh OK` (JaCoCo >= 90% verde).
 `INCLUDE_INTEGRATION=true ./init.sh` (colima) -> BUILD SUCCESSFUL, `==> init.sh OK`.
+
+## Fix: double inventory creation
+Defecto: `CreateEventUseCase` llamaba `events.save` y luego `inventories.create`, pero `DynamoDbEventRepository.save` (F-007) ya escribe evento + inventario inicial (`Inventory.initial`: available = capacity, reserved/pending/sold/complimentary = 0, version 0) en un `TransactWriteItems` con `attribute_not_exists`; el segundo call fallaba siempre con `EventAlreadyExistsException` en DynamoDB real. (La decision "Create: save y luego inventories.create" de arriba queda obsoleta.)
+
+Archivos:
+- `usecase/CreateEventUseCase`: solo `events.save`; sin dependencia `InventoryRepository`; Javadoc del contrato.
+- `domain/port/EventRepository`: Javadoc de `save` (persiste evento + inventario inicial atomicamente).
+- `infrastructure/config/UseCaseConfig`: `createEventUseCase(events, ids, clock)`.
+- Tests: `CreateEventUseCaseTest` (sin mock de inventarios; `verifyNoMoreInteractions(events)`, propaga error de save), `UseCaseConfigTest` actualizado.
+- Nuevo `usecase/EventUseCasesIT` (@Tag integration, dynamodb-local:3.3.1, adaptadores reales + provisioner): create -> get (inventario = `Inventory.initial`, available 120, version 0) -> list lo contiene; input invalido (nombre en blanco, fecha pasada, capacidad 0) rechazado y conteos de ambas tablas sin cambios.
+
+Verificacion: `./init.sh` -> BUILD SUCCESSFUL, `==> init.sh OK` (JaCoCo 90% verde).
+`INCLUDE_INTEGRATION=true ./init.sh` (colima, DOCKER_HOST + TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE) -> BUILD SUCCESSFUL, `==> init.sh OK`; EventUseCasesIT ejecutado (2 tests).
