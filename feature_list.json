@@ -125,7 +125,7 @@
     "id": "F-008",
     "name": "inventory-repository",
     "phase": 3,
-    "status": "pending",
+    "status": "done",
     "depends_on": [
       "F-006"
     ],
@@ -239,7 +239,7 @@
     ],
     "issue": 14,
     "title": "Process order use case (consumer logic)",
-    "description": "ProcessOrderUseCase: idempotent handling of an order message: RESERVED -> PENDING_CONFIRMATION -> SOLD, validating the reservation is still valid (not expired) and real inventory. Reprocessing a SOLD order is a no-op. Expired reservations end released.",
+    "description": "ProcessOrderUseCase: idempotent handling of an order message: RESERVED -> PENDING_CONFIRMATION -> SOLD, validating the reservation is still valid (not expired) and real inventory. Reprocessing a SOLD order is a no-op. Expired reservations end released. NOTE (from F-008 review): InventoryRepository has no operations for the pendingConfirmation counter yet (reserve, confirmSale, release, issueComplimentary only); extend the port and adapter (e.g. markPending: reserved -> pendingConfirmation, and confirm/release from pendingConfirmation) as part of this feature.",
     "acceptance": [
       "Processing the same message twice yields the same final state and counters",
       "Expired reservation is not sold and its inventory is released",
