@@ -19,7 +19,7 @@ com.ticketflow
     └── config        # @Configuration, properties
 ```
 
-**Regla de dependencias:** `infrastructure → usecase → domain`. Nunca al revés. `domain` no importa Spring ni AWS SDK. `usecase` solo conoce puertos (`domain.port`) y puede usar `reactor-core` (`Mono`/`Flux`).
+**Regla de dependencias:** `infrastructure → usecase → domain`. Nunca al revés. `domain` no importa Spring ni AWS SDK. `usecase` solo conoce puertos (`domain.port`) y puede usar `reactor-core` (`Mono`/`Flux`). Los casos de uso son clases sin anotaciones de Spring; sus beans (y `Clock`, `IdGenerator`) se declaran en `infrastructure.config.UseCaseConfig`.
 
 ## Estados de una entrada
 
