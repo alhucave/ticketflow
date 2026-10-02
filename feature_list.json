@@ -251,7 +251,7 @@
     "id": "F-015",
     "name": "sqs-publisher",
     "phase": 5,
-    "status": "pending",
+    "status": "in_progress",
     "depends_on": [
       "F-002",
       "F-005"

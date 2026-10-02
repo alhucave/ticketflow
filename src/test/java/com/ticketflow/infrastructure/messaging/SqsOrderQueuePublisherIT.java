@@ -123,6 +123,22 @@ class SqsOrderQueuePublisherIT {
     }
 
     @Test
+    void publish_queueUrlWithUnresolvableHost_stillSentToConfiguredEndpoint() {
+        // Inside docker compose, LocalStack returns URLs whose host only resolves on the host machine:
+        // the SDK must keep using the configured endpoint, not the host of the queue URL.
+        var queueName = "orders-host-" + UUID.randomUUID();
+        var realUrl = createQueue(queueName);
+        var path = java.net.URI.create(realUrl).getPath();
+        var order = order();
+
+        runner.withPropertyValues("ticketflow.sqs.orders-queue-url=http://unresolvable.invalid:4566" + path)
+                .run(context -> StepVerifier.create(context.getBean(OrderQueuePublisher.class).publish(order))
+                        .verifyComplete());
+
+        assertThat(receiveOne(sqs, realUrl).body()).contains(order.id().value());
+    }
+
+    @Test
     void publish_toMissingQueue_failsClearlyAndNothingIsCreated() {
         var missing = "missing-" + UUID.randomUUID();
 
