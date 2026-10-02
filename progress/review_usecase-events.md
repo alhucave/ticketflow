@@ -1,35 +1,35 @@
-# Review — feature F-010 (usecase-events)
+# Review — feature F-010 (usecase-events), re-review of 799c164 + 85d8bf0
 
 **Veredicto:** APPROVED
 
-`./init.sh` y `INCLUDE_INTEGRATION=true ./init.sh` (colima) ejecutados por el reviewer: ambos BUILD SUCCESSFUL, `init.sh OK`, JaCoCo >= 90%.
+## Compatibilidad con los adaptadores reales
+- Create -> `DynamoDbEventRepository.save`: el adaptador escribe evento + `Inventory.initial` en un `TransactWriteItems` con `attribute_not_exists`; el use case solo llama `events.save`, sin `inventories.create`. Duplicado -> `EventAlreadyExistsException` (propagado tal cual, test unitario). Compatible. El IT sobre DynamoDB Local lo demuestra (inventario available=120, version 0, creado una sola vez).
+- Validacion previa a los puertos: el `Event` record lanza IAE, pero el use case valida antes y emite `InvalidEventException`; el IT comprueba que no se escribe nada en ninguna tabla.
+- Get -> `findById` / `findByEventId`: ambos adaptadores reportan ausencia como `Mono` vacio (filtro `hasItem`), no como error; el use case usa `switchIfEmpty` -> `EventNotFoundException`. Compatible. Lecturas con `consistentRead(true)`.
+- List -> `findAll`: scan paginado con `expand`, `Flux` completo sin orden garantizado ni consistencia fuerte; el use case no promete orden. Compatible.
 
-## Criterios de aceptación
-- Rechaza input inválido con error de dominio de validación: CreateEventUseCaseTest (nombre, venue, fecha no futura con Clock fijo, capacidad <= 0, comando nulo; verifyNoInteractions de puertos) — [x]
-- Devuelve evento con snapshot de inventario: GetAndListEventsUseCaseTest.getEvent_existing_returnsEventWithInventorySnapshot — [x]
-- Id desconocido -> EventNotFoundException: getEvent_unknownId / getEvent_missingInventory — [x]
-- Creación guarda evento e inicializa inventario (available = capacity): execute_validCommand_savesEventAndInitializesInventory — [x]
-- Todo con StepVerifier, sin .block() — [x]
-- ArchUnit usecase (sin infrastructure/Spring/AWS): UseCaseArchitectureTest — [x]
-- Clock inyectado, IdGenerator como puerto en domain.port, excepción tipada InvalidEventException en domain.exception — [x]
-
-## Contraste con la spec original
-Crear y consultar eventos (nombre, fecha, lugar, capacidad) con inventario inicial = capacidad y consulta con inventario actual: cubierto. La actualización del inventario por compras corresponde a features posteriores.
+## Criterios de aceptacion
+- Rechaza input invalido con error de validacion de dominio: `CreateEventUseCaseTest` (nombre, venue, fecha no futura, capacidad <= 0, comando nulo; `verifyNoInteractions(events)`) y `EventUseCasesIT.create_invalidInput_...` — [x]
+- Devuelve evento con snapshot de inventario actual: `GetAndListEventsUseCaseTest.getEvent_existing_...`, `getEvent_unknownId_...`, `getEvent_missingInventory_...` y `EventUseCasesIT.createGetList_endToEnd_...` con adaptadores reales — [x]
+- Tests unitarios con puertos mockeados y StepVerifier: todos los tests de `usecase/*Test` — [x]
 
 ## Checkpoints
-- C1: [x]
-- C2: [x] usecase solo importa domain y reactor/java.time; ArchUnit lo verifica
+- C1: [x] `./init.sh` OK y `INCLUDE_INTEGRATION=true ./init.sh` OK (colima); se ejecuto `EventUseCasesIT`.
+- C2: [x] usecase sin Spring/AWS/infrastructure (`UseCaseArchitectureTest`); domain limpio.
 - C3: [x]
-- C4: [x] sin .block()/Thread.sleep en src/main
-- C5: [x] N/A (solo creación inicial vía puerto)
-- C6: [x] N/A
-- C7: [x]
-- C8: [x]
-- C9: [x]
-- C10: [x] UseCaseConfig y la nota en architecture.md son wiring necesario
-- C11: [x] architecture.md actualizado
+- C4: [x] sin `.block()`/`Thread.sleep` en main (el `.block` del IT es codigo de test).
+- C5: [x] N/A, la feature no modifica contadores; el inventario inicial lo escribe el adaptador.
+- C6: [x] N/A, sin transiciones.
+- C7: [x] Ingles, sin Lombok; `@Autowired` solo en constructores preexistentes (F-008/F-009), no en esta feature.
+- C8: [x] credenciales ficticias test/test.
+- C9: [x] JaCoCo >= 90% verde en init.sh.
+- C10: [x] scope acotado (`IdGenerator` y `UseCaseConfig` son necesarios para el wiring descrito).
+- C11: [x] `docs/architecture.md` actualizado con el wiring de use cases; Javadoc de `EventRepository.save` documenta el contrato atomico.
+
+## Cambios requeridos
+Ninguno.
 
 ## Observaciones no bloqueantes
-- CreateEventUseCase.java:34-37: sin transacción entre events.save e inventories.create; un fallo deja un evento sin inventario (documentado por el implementer; Get responde not found).
-- IdGenerator solo expone nextEventId; se ampliará con OrderId.
-- UseCaseConfigTest solo comprueba que los beans se construyen (cobertura de config).
+- `progress/impl_usecase-events.md` mantiene la decision obsoleta "save y luego inventories.create" (marcada como obsoleta mas abajo); conviene limpiarla.
+- `ListEventsUseCase` no ofrece paginacion ni inventario; aceptable segun el acceptance, a revisar en F-018 si se necesita.
+- `GetEventUseCase` hace dos lecturas secuenciales; podrian ser concurrentes (`Mono.zip`) si la latencia importa.
