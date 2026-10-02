@@ -4,7 +4,9 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 import com.ticketflow.domain.exception.InvalidEventException;
 import com.ticketflow.domain.model.EventId;
+import com.ticketflow.domain.exception.EventNotFoundException;
 import com.ticketflow.domain.model.Inventory;
+import com.ticketflow.domain.model.Quantity;
 import com.ticketflow.infrastructure.persistence.DynamoDbEventRepository;
 import com.ticketflow.infrastructure.persistence.DynamoDbInventoryRepository;
 import com.ticketflow.infrastructure.persistence.DynamoDbTableProvisioner;
@@ -19,6 +21,7 @@ import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.GenericContainer;
 import org.testcontainers.utility.DockerImageName;
+import reactor.core.scheduler.Schedulers;
 import reactor.test.StepVerifier;
 import software.amazon.awssdk.auth.credentials.AwsBasicCredentials;
 import software.amazon.awssdk.auth.credentials.StaticCredentialsProvider;
@@ -38,6 +41,8 @@ class EventUseCasesIT {
     private static CreateEventUseCase create;
     private static GetEventUseCase get;
     private static ListEventsUseCase list;
+    private static GetAvailabilityUseCase availability;
+    private static DynamoDbInventoryRepository inventoriesRepo;
 
     @BeforeAll
     static void start() {
@@ -54,6 +59,8 @@ class EventUseCasesIT {
         create = new CreateEventUseCase(events, () -> EventId.generate(), Clock.systemUTC());
         get = new GetEventUseCase(events, inventories);
         list = new ListEventsUseCase(events);
+        inventoriesRepo = inventories;
+        availability = new GetAvailabilityUseCase(inventories, Duration.ofMillis(100), Schedulers.parallel());
     }
 
     @AfterAll
@@ -98,6 +105,41 @@ class EventUseCasesIT {
 
         assertThat(count(DynamoDbTables.EVENTS)).isEqualTo(eventsBefore);
         assertThat(count(DynamoDbTables.INVENTORY)).isEqualTo(inventoryBefore);
+    }
+
+    @Test
+    void availability_afterCreateAndReserve_reflectsReservedAndStreamsChange() {
+        var created = create.execute(new CreateEventCommand("Jazz", Instant.now().plus(Duration.ofDays(5)), "Hall", 50))
+                .block(Duration.ofSeconds(10));
+        assertThat(created).isNotNull();
+
+        StepVerifier.create(availability.execute(created.id()))
+                .expectNext(new Availability(created.id(), 50, 0, 0, 0, 0, 50))
+                .verifyComplete();
+
+        StepVerifier.create(availability.stream(created.id()).take(2))
+                .expectNext(new Availability(created.id(), 50, 0, 0, 0, 0, 50))
+                .then(() -> inventoriesRepo.reserve(created.id(), new Quantity(5)).block(Duration.ofSeconds(10)))
+                .expectNext(new Availability(created.id(), 45, 5, 0, 0, 0, 50))
+                .expectComplete()
+                .verify(Duration.ofSeconds(10));
+
+        StepVerifier.create(availability.execute(created.id()))
+                .assertNext(a -> {
+                    assertThat(a.reserved()).isEqualTo(5);
+                    assertThat(a.available()).isEqualTo(45);
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void availability_unknownEvent_failsWithEventNotFound() {
+        StepVerifier.create(availability.execute(new EventId("missing")))
+                .expectError(EventNotFoundException.class)
+                .verify();
+        StepVerifier.create(availability.stream(new EventId("missing")))
+                .expectError(EventNotFoundException.class)
+                .verify();
     }
 
     private static int count(String table) {

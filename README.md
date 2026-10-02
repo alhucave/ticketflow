@@ -40,3 +40,7 @@ docker-compose down -v      # detiene y elimina contenedores y volúmenes
 Propiedades `ticketflow.dynamodb.*` (variables de entorno `TICKETFLOW_DYNAMODB_*`): `endpoint` (vacío = AWS real), `region` (por defecto `us-east-1`), `access-key-id` / `secret-access-key` (opcionales y solo para local; sin ellas se usa la cadena de credenciales por defecto de AWS) y `provisioning-enabled` (por defecto `false`; `docker-compose.yml` lo activa).
 
 Con `provisioning-enabled=true`, al arrancar (evento `ApplicationReadyEvent`, sin bloquear) se crean de forma idempotente las tablas `events`, `inventory`, `orders` (GSI `idempotencyKey-index` y `status-reservationExpiresAt-index`) y `order_audit` (PK `orderId`, SK `timestamp`). Las tablas existentes no se modifican; solo se añaden GSIs faltantes.
+
+## Configuración de la disponibilidad en tiempo real
+
+- `ticketflow.availability.poll-interval` (por defecto `1s`): cada cuánto consulta el inventario el flujo de disponibilidad. Se puede fijar con la variable de entorno `TICKETFLOW_AVAILABILITY_POLL_INTERVAL`.

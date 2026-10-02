@@ -5,11 +5,15 @@ import com.ticketflow.domain.port.EventRepository;
 import com.ticketflow.domain.port.IdGenerator;
 import com.ticketflow.domain.port.InventoryRepository;
 import com.ticketflow.usecase.CreateEventUseCase;
+import com.ticketflow.usecase.GetAvailabilityUseCase;
 import com.ticketflow.usecase.GetEventUseCase;
 import com.ticketflow.usecase.ListEventsUseCase;
 import java.time.Clock;
+import java.time.Duration;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import reactor.core.scheduler.Schedulers;
 
 /** Wires the framework-free use cases and their infrastructure helpers. */
 @Configuration
@@ -38,5 +42,12 @@ public class UseCaseConfig {
     @Bean
     ListEventsUseCase listEventsUseCase(EventRepository events) {
         return new ListEventsUseCase(events);
+    }
+
+    @Bean
+    GetAvailabilityUseCase getAvailabilityUseCase(
+            InventoryRepository inventories,
+            @Value("${ticketflow.availability.poll-interval:1s}") Duration pollInterval) {
+        return new GetAvailabilityUseCase(inventories, pollInterval, Schedulers.parallel());
     }
 }
