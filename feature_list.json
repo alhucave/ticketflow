@@ -178,7 +178,7 @@
     "id": "F-011",
     "name": "usecase-availability",
     "phase": 4,
-    "status": "in_progress",
+    "status": "done",
     "depends_on": [
       "F-007",
       "F-008"
@@ -333,7 +333,7 @@
     ],
     "issue": 19,
     "title": "Orders and availability REST endpoints",
-    "description": "POST /orders (Idempotency-Key header, returns 202 + orderId), GET /orders/{id}, GET /events/{id}/availability and GET /events/{id}/availability/stream (text/event-stream).",
+    "description": "POST /orders (Idempotency-Key header, returns 202 + orderId), GET /orders/{id}, GET /events/{id}/availability and GET /events/{id}/availability/stream (text/event-stream). NOTE (from F-011 review): GetAvailabilityUseCase.stream ends with an error once DynamoDB transient-error retries are exhausted; the SSE endpoint must resubscribe/retry with backoff (e.g. Flux.retryWhen) and never leak internal error details to the client.",
     "acceptance": [
       "POST /orders returns 202 immediately with orderId",
       "Missing or malformed Idempotency-Key returns 400",
