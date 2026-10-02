@@ -1,0 +1,15 @@
+# CHECKPOINTS
+
+Checklist que aplica el `reviewer` a cada feature.
+
+- C1: `./init.sh` termina en verde (ejecutado por el reviewer, no copiado del informe).
+- C2: Se respeta la regla de dependencias `infrastructure → usecase → domain`; `domain` no importa Spring ni AWS SDK.
+- C3: Todo criterio de `acceptance` tiene un test que lo prueba de verdad (no tests vacíos).
+- C4: No hay llamadas bloqueantes (`.block()`, `Thread.sleep`) en código de producción.
+- C5: Cualquier cambio de inventario usa conditional writes / optimistic locking.
+- C6: Las transiciones de estado son válidas según `docs/architecture.md` y quedan auditadas.
+- C7: Código, nombres y comentarios en inglés; sin Lombok ni `@Autowired` en campos.
+- C8: No hay secretos ni credenciales reales en el código, la configuración o los logs.
+- C9: La cobertura global se mantiene ≥ 90%.
+- C10: El scope no excede la feature (sin cambios ajenos al `acceptance`).
+- C11: La documentación afectada (README, docs/) está actualizada.

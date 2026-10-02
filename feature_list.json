@@ -1,0 +1,277 @@
+[
+  {
+    "id": "F-001", "name": "gradle-bootstrap", "phase": 1, "status": "pending", "depends_on": [], "issue": null,
+    "title": "Gradle project bootstrap",
+    "description": "Create the Gradle (Kotlin DSL) project with Java 25 toolchain, Spring Boot 4.x, WebFlux, AWS SDK v2 (dynamodb-enhanced async, sqs), JUnit 5, Mockito, reactor-test, Testcontainers and JaCoCo. Create the com.ticketflow package skeleton (domain, usecase, infrastructure) and a health endpoint.",
+    "acceptance": [
+      "./gradlew build succeeds on Java 25",
+      "JaCoCo coverage verification task fails below 90% line coverage",
+      "Package skeleton com.ticketflow.{domain,usecase,infrastructure} exists",
+      "GET /actuator/health returns 200 (covered by a WebTestClient test)"
+    ]
+  },
+  {
+    "id": "F-002", "name": "docker-compose-infra", "phase": 1, "status": "pending", "depends_on": ["F-001"], "issue": null,
+    "title": "Dockerfile and docker-compose with DynamoDB Local and LocalStack SQS",
+    "description": "Multi-stage Dockerfile for the app (non-root user) and docker-compose.yml that starts the app, DynamoDB Local and LocalStack (SQS). Include an init script that creates the queues (orders queue + DLQ). Provide .env.example.",
+    "acceptance": [
+      "docker compose up --build starts app, DynamoDB Local and LocalStack",
+      "Orders queue and its DLQ exist after startup",
+      "Container runs as non-root",
+      ".env.example documented and .env ignored by git"
+    ]
+  },
+  {
+    "id": "F-003", "name": "ci-and-ghcr", "phase": 1, "status": "pending", "depends_on": ["F-001"], "issue": null,
+    "title": "GitHub Actions CI and ghcr.io image publishing",
+    "description": "Workflow ci.yml running ./init.sh on every PR and push to main (Java 25, Docker available for Testcontainers). Workflow release.yml that builds and pushes ghcr.io/alhucave/ticketflow on tags v*.",
+    "acceptance": [
+      "CI runs ./init.sh on pull_request and push to main",
+      "Coverage report uploaded as workflow artifact",
+      "release.yml publishes image to ghcr.io on v* tags using GITHUB_TOKEN",
+      "Workflows pin action versions and use minimal permissions"
+    ]
+  },
+  {
+    "id": "F-004", "name": "domain-ticket-state-machine", "phase": 2, "status": "pending", "depends_on": ["F-001"], "issue": null,
+    "title": "Ticket status enum and transition rules",
+    "description": "Implement TicketStatus (AVAILABLE, RESERVED, PENDING_CONFIRMATION, SOLD, COMPLIMENTARY) with a pure transition function using pattern matching and a domain exception for invalid transitions. Include flags: isFinal, isSale (only SOLD).",
+    "acceptance": [
+      "Only transitions in docs/architecture.md are allowed; any other throws InvalidStateTransitionException",
+      "SOLD and COMPLIMENTARY are final: no outgoing transitions",
+      "RESERVED and PENDING_CONFIRMATION are not sales; COMPLIMENTARY is not countable as a sale",
+      "Exhaustive test over the full 5x5 transition matrix"
+    ]
+  },
+  {
+    "id": "F-005", "name": "domain-models-and-ports", "phase": 2, "status": "pending", "depends_on": ["F-004"], "issue": null,
+    "title": "Domain records, errors and repository ports",
+    "description": "Create records Event, Inventory (counters + version), Order, OrderAuditEntry, value objects (EventId, OrderId, Quantity, IdempotencyKey) and ports EventRepository, InventoryRepository, OrderRepository, OrderQueuePublisher returning Mono/Flux. Define domain exceptions (EventNotFound, InsufficientInventory, OrderNotFound, ReservationExpired, ConcurrentModification).",
+    "acceptance": [
+      "Records validate invariants in compact constructors (positive quantity, non-blank name, capacity > 0)",
+      "Inventory enforces available+reserved+pendingConfirmation+sold+complimentary = capacity",
+      "Domain package has no Spring or AWS imports (verified by an ArchUnit or equivalent test)"
+    ]
+  },
+  {
+    "id": "F-006", "name": "dynamodb-config-tables", "phase": 3, "status": "pending", "depends_on": ["F-002", "F-005"], "issue": null,
+    "title": "DynamoDB async client configuration and table provisioning",
+    "description": "Configure DynamoDbEnhancedAsyncClient with endpoint override for local, region and credentials via properties/env. Provision tables events, inventory, orders (with GSIs) and order_audit on startup when enabled by property.",
+    "acceptance": [
+      "Client endpoint, region and credentials come from configuration, never hardcoded",
+      "Tables and GSIs are created idempotently at startup (integration test with Testcontainers)",
+      "Provisioning can be disabled by property"
+    ]
+  },
+  {
+    "id": "F-007", "name": "event-repository", "phase": 3, "status": "pending", "depends_on": ["F-006"], "issue": null,
+    "title": "DynamoDB EventRepository adapter",
+    "description": "Implement EventRepository: save event together with its initial inventory (all capacity as available) and find by id / list.",
+    "acceptance": [
+      "Creating an event creates its inventory with available = capacity",
+      "findById returns empty Mono for unknown ids",
+      "Integration test against DynamoDB Local/LocalStack"
+    ]
+  },
+  {
+    "id": "F-008", "name": "inventory-repository", "phase": 3, "status": "pending", "depends_on": ["F-006"], "issue": null,
+    "title": "Inventory repository with conditional writes",
+    "description": "Implement InventoryRepository operations reserve(eventId, qty), confirmSale, release, issueComplimentary, each as a single UpdateItem with ConditionExpression and version increment. Map ConditionalCheckFailed to InsufficientInventory or ConcurrentModification. Retry with backoff only on transient errors.",
+    "acceptance": [
+      "reserve fails with InsufficientInventory when available < qty",
+      "Each mutation is one atomic conditional write incrementing version",
+      "Counter invariant holds after any sequence of operations (property-style test)",
+      "Transient throttling is retried; business errors are not"
+    ]
+  },
+  {
+    "id": "F-009", "name": "order-repository", "phase": 3, "status": "pending", "depends_on": ["F-006"], "issue": null,
+    "title": "Order repository with audit trail and idempotency lookup",
+    "description": "Implement OrderRepository: create, findById, findByIdempotencyKey (GSI), transition status with a conditional write on the expected current status, append audit entries, and query expired reservations (GSI status + expiresAt).",
+    "acceptance": [
+      "Status transition uses a condition on the expected current status",
+      "Every transition appends an audit entry with from, to, timestamp and actor",
+      "findByIdempotencyKey returns the existing order",
+      "findExpired returns only RESERVED/PENDING_CONFIRMATION orders with expiresAt < now"
+    ]
+  },
+  {
+    "id": "F-010", "name": "usecase-events", "phase": 4, "status": "pending", "depends_on": ["F-007"], "issue": null,
+    "title": "Create and query events use cases",
+    "description": "CreateEventUseCase, GetEventUseCase, ListEventsUseCase with validation (name, date in the future, venue, capacity > 0).",
+    "acceptance": [
+      "Rejects invalid input with a domain validation error",
+      "Returns event with current inventory snapshot",
+      "Unit tests with mocked ports using StepVerifier"
+    ]
+  },
+  {
+    "id": "F-011", "name": "usecase-availability", "phase": 4, "status": "pending", "depends_on": ["F-007", "F-008"], "issue": null,
+    "title": "Real-time availability use case",
+    "description": "GetAvailabilityUseCase returning a snapshot (available, reserved, pendingConfirmation, sold, complimentary) and a Flux stream variant that emits on changes (polling interval configurable).",
+    "acceptance": [
+      "Availability reflects reserved and pending tickets as not available",
+      "Stream variant emits updates and completes/cancels cleanly",
+      "Unknown event yields EventNotFound"
+    ]
+  },
+  {
+    "id": "F-012", "name": "usecase-purchase-request", "phase": 4, "status": "pending", "depends_on": ["F-008", "F-009"], "issue": null,
+    "title": "Purchase request use case (reserve + enqueue)",
+    "description": "RequestPurchaseUseCase: validate, honor Idempotency-Key (return existing order), atomically reserve inventory with 10-minute expiry, persist order as RESERVED, publish to the order queue and return orderId immediately. If publishing fails after reserving, release the reservation and mark the order failed.",
+    "acceptance": [
+      "Returns orderId without waiting for processing",
+      "Same Idempotency-Key never creates a second order or reserves twice",
+      "Reservation expiry is exactly now + 10 minutes (configurable, tested with a fixed Clock)",
+      "Publish failure compensates by releasing inventory"
+    ]
+  },
+  {
+    "id": "F-013", "name": "usecase-order-status", "phase": 4, "status": "pending", "depends_on": ["F-009"], "issue": null,
+    "title": "Order status query use case",
+    "description": "GetOrderStatusUseCase returning current status (any of the five states), quantity, event and expiry; OrderNotFound otherwise.",
+    "acceptance": [
+      "Returns the current status for existing orders",
+      "Unknown order id yields OrderNotFound",
+      "Unit tests cover each status value"
+    ]
+  },
+  {
+    "id": "F-014", "name": "usecase-process-order", "phase": 4, "status": "pending", "depends_on": ["F-008", "F-009"], "issue": null,
+    "title": "Process order use case (consumer logic)",
+    "description": "ProcessOrderUseCase: idempotent handling of an order message: RESERVED -> PENDING_CONFIRMATION -> SOLD, validating the reservation is still valid (not expired) and real inventory. Reprocessing a SOLD order is a no-op. Expired reservations end released.",
+    "acceptance": [
+      "Processing the same message twice yields the same final state and counters",
+      "Expired reservation is not sold and its inventory is released",
+      "Transitions are audited",
+      "Concurrent processing of the same order results in a single sale"
+    ]
+  },
+  {
+    "id": "F-015", "name": "sqs-publisher", "phase": 5, "status": "pending", "depends_on": ["F-002", "F-005"], "issue": null,
+    "title": "SQS order queue publisher adapter",
+    "description": "Implement OrderQueuePublisher with the AWS SDK v2 async SQS client. Message body is a versioned JSON record with orderId; include message attributes for tracing. Retry with backoff on transient errors.",
+    "acceptance": [
+      "Publishing returns after SQS acknowledges the message",
+      "Integration test with LocalStack verifies the message arrives",
+      "Endpoint and queue URL come from configuration"
+    ]
+  },
+  {
+    "id": "F-016", "name": "sqs-consumer", "phase": 5, "status": "pending", "depends_on": ["F-014", "F-015"], "issue": null,
+    "title": "SQS consumer with at-least-once semantics and DLQ",
+    "description": "Reactive long-polling consumer that calls ProcessOrderUseCase and deletes the message only after success. Configure visibility timeout, maxReceiveCount and DLQ redrive. Bounded concurrency; graceful shutdown.",
+    "acceptance": [
+      "Message is deleted only after successful processing",
+      "Failed processing makes the message reappear and, after maxReceiveCount, land in the DLQ (integration test)",
+      "Concurrency is bounded by configuration",
+      "Poison messages (invalid JSON) do not stop the consumer"
+    ]
+  },
+  {
+    "id": "F-017", "name": "reservation-expiration-job", "phase": 6, "status": "pending", "depends_on": ["F-008", "F-009"], "issue": null,
+    "title": "Scheduled release of expired reservations",
+    "description": "Reactive scheduler that periodically finds expired reservations and, per order, atomically transitions it to expired and returns inventory to available. Safe under multiple app instances (conditional transition ensures one winner).",
+    "acceptance": [
+      "Expired reservations return their quantity to available exactly once",
+      "Non-expired reservations are untouched",
+      "Two concurrent runs never release the same order twice",
+      "Interval is configurable and tested with a virtual clock"
+    ]
+  },
+  {
+    "id": "F-018", "name": "web-events-api", "phase": 7, "status": "pending", "depends_on": ["F-010"], "issue": null,
+    "title": "Events REST endpoints",
+    "description": "POST /events, GET /events/{id}, GET /events with request/response DTOs as records and bean validation.",
+    "acceptance": [
+      "POST /events returns 201 with Location header",
+      "Invalid body returns 400 with a structured error",
+      "Unknown id returns 404",
+      "WebTestClient tests for each endpoint"
+    ]
+  },
+  {
+    "id": "F-019", "name": "web-orders-availability-api", "phase": 7, "status": "pending", "depends_on": ["F-011", "F-012", "F-013"], "issue": null,
+    "title": "Orders and availability REST endpoints",
+    "description": "POST /orders (Idempotency-Key header, returns 202 + orderId), GET /orders/{id}, GET /events/{id}/availability and GET /events/{id}/availability/stream (text/event-stream).",
+    "acceptance": [
+      "POST /orders returns 202 immediately with orderId",
+      "Missing or malformed Idempotency-Key returns 400",
+      "Availability stream produces server-sent events",
+      "WebTestClient tests for each endpoint"
+    ]
+  },
+  {
+    "id": "F-020", "name": "web-error-handling", "phase": 7, "status": "pending", "depends_on": ["F-018"], "issue": null,
+    "title": "Global reactive error handling",
+    "description": "Central handler mapping domain exceptions to RFC 7807 problem details: 404, 409 (insufficient inventory, concurrent modification), 410 (expired reservation), 400, 429 and 500 without leaking internals.",
+    "acceptance": [
+      "Each domain exception maps to the documented status",
+      "500 responses never expose stack traces or internal messages",
+      "A correlation id is included in error responses and logs"
+    ]
+  },
+  {
+    "id": "F-021", "name": "complimentary-issuance", "phase": 7, "status": "pending", "depends_on": ["F-008", "F-019"], "issue": null,
+    "title": "Issue complimentary tickets",
+    "description": "Use case and endpoint POST /events/{id}/complimentary that moves tickets AVAILABLE -> COMPLIMENTARY. Final state, excluded from sales totals.",
+    "acceptance": [
+      "Cannot exceed available inventory",
+      "Complimentary tickets are not counted as sold in any report or counter",
+      "Transition is audited"
+    ]
+  },
+  {
+    "id": "F-022", "name": "concurrency-tests", "phase": 8, "status": "pending", "depends_on": ["F-019", "F-016", "F-017"], "issue": null,
+    "title": "End-to-end concurrency and consistency tests",
+    "description": "Integration tests that fire many parallel purchase requests over limited capacity and assert no oversell, correct counters, no duplicate orders for the same Idempotency-Key and correct release after expiry.",
+    "acceptance": [
+      "N parallel requests over capacity C never produce sold + reserved > C",
+      "Counter invariant holds at the end of every scenario",
+      "Duplicate message delivery does not double-sell",
+      "Tests are deterministic (no flaky sleeps)"
+    ]
+  },
+  {
+    "id": "F-023", "name": "security-hardening", "phase": 8, "status": "pending", "depends_on": ["F-019"], "issue": null,
+    "title": "Security hardening",
+    "description": "Secrets only via env vars, request size limits, per-client rate limiting on POST /orders, max quantity per order, input validation, idempotency protection against malicious retries, dependency vulnerability scan in CI, and non-root, minimal runtime image.",
+    "acceptance": [
+      "Rate limit returns 429 when exceeded (tested)",
+      "Max quantity per order enforced",
+      "No secrets in repository (secret scanning step in CI)",
+      "docs/security.md documents threats and mitigations (retries, idempotency, resource abuse)"
+    ]
+  },
+  {
+    "id": "F-024", "name": "observability", "phase": 8, "status": "pending", "depends_on": ["F-019"], "issue": null,
+    "title": "Metrics, structured logging and tracing hooks",
+    "description": "Actuator + Micrometer metrics (orders created/sold/expired, queue lag, conditional-write conflicts), structured JSON logs with correlation id, readiness/liveness probes.",
+    "acceptance": [
+      "Custom business metrics exposed and unit-tested",
+      "Logs are structured and include the correlation id",
+      "Health groups for liveness and readiness"
+    ]
+  },
+  {
+    "id": "F-025", "name": "docs-and-requests", "phase": 8, "status": "pending", "depends_on": ["F-022"], "issue": null,
+    "title": "README, diagrams and request collection",
+    "description": "Complete README (solution, install, Docker commands, architectural decisions, endpoint examples), Mermaid architecture and sequence diagrams explaining component interactions, and a Postman/Insomnia or curl collection demonstrating the main flows.",
+    "acceptance": [
+      "README covers all items required by the specification",
+      "Architecture and sequence diagrams render on GitHub",
+      "Request collection exercises create event, purchase, order status and availability",
+      "Following the README from a clean clone works"
+    ]
+  },
+  {
+    "id": "F-026", "name": "aws-cloud-native-docs", "phase": 9, "status": "pending", "depends_on": ["F-025"], "issue": null,
+    "title": "AWS cloud-native documentation (deferred)",
+    "description": "Document the target AWS deployment (ECS Fargate, DynamoDB, SQS+DLQ, Secrets Manager, CloudWatch, IaC), cloud security best practices, cost estimate, observability and governance. Documentation only, no real deployment.",
+    "acceptance": [
+      "docs/aws.md with architecture diagram",
+      "Security, cost, observability and governance sections",
+      "Explicitly states that nothing is deployed to AWS"
+    ]
+  }
+]
