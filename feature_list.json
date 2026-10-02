@@ -143,7 +143,7 @@
     "id": "F-009",
     "name": "order-repository",
     "phase": 3,
-    "status": "pending",
+    "status": "done",
     "depends_on": [
       "F-006"
     ],
@@ -203,7 +203,7 @@
     ],
     "issue": 12,
     "title": "Purchase request use case (reserve + enqueue)",
-    "description": "RequestPurchaseUseCase: validate, honor Idempotency-Key (return existing order), atomically reserve inventory with 10-minute expiry, persist order as RESERVED, publish to the order queue and return orderId immediately. If publishing fails after reserving, release the reservation and mark the order failed.",
+    "description": "RequestPurchaseUseCase: validate, honor Idempotency-Key (return existing order), atomically reserve inventory with 10-minute expiry, persist order as RESERVED, publish to the order queue and return orderId immediately. If publishing fails after reserving, release the reservation and mark the order failed. NOTES (from F-009 review): (1) Idempotency: a GSI cannot enforce uniqueness and is eventually consistent, so derive the orderId deterministically from the Idempotency-Key (or write a key-reservation item with attribute_not_exists) so two concurrent requests with the same key cannot create two orders. (2) Stay within the five spec states: a failed/compensated order ends in AVAILABLE and the reason is recorded in the audit entry; do NOT add EXPIRED/FAILED states (the spec has exactly AVAILABLE, RESERVED, PENDING_CONFIRMATION, SOLD, COMPLIMENTARY). (3) Prefer OrderRepository.transition over saveAuditEntry so status and audit stay atomic. (4) Order and inventory writes are separate: design the compensation/ordering so a crash between them cannot oversell (reserve inventory first, then create the order; release on failure).",
     "acceptance": [
       "Returns orderId without waiting for processing",
       "Same Idempotency-Key never creates a second order or reserves twice",
@@ -239,7 +239,7 @@
     ],
     "issue": 14,
     "title": "Process order use case (consumer logic)",
-    "description": "ProcessOrderUseCase: idempotent handling of an order message: RESERVED -> PENDING_CONFIRMATION -> SOLD, validating the reservation is still valid (not expired) and real inventory. Reprocessing a SOLD order is a no-op. Expired reservations end released. NOTE (from F-008 review): InventoryRepository has no operations for the pendingConfirmation counter yet (reserve, confirmSale, release, issueComplimentary only); extend the port and adapter (e.g. markPending: reserved -> pendingConfirmation, and confirm/release from pendingConfirmation) as part of this feature.",
+    "description": "ProcessOrderUseCase: idempotent handling of an order message: RESERVED -> PENDING_CONFIRMATION -> SOLD, validating the reservation is still valid (not expired) and real inventory. Reprocessing a SOLD order is a no-op. Expired reservations end released. NOTE (from F-008 review): InventoryRepository has no operations for the pendingConfirmation counter yet (reserve, confirmSale, release, issueComplimentary only); extend the port and adapter (e.g. markPending: reserved -> pendingConfirmation, and confirm/release from pendingConfirmation) as part of this feature. NOTES (from F-009 review): treat OrderStatusConflictException and OrderNotFoundException from reprocessing as benign (idempotent redelivery; GSI reads are eventually consistent). Order transition and inventory update are two writes: order them so a crash cannot leave a sale without inventory movement (or document the reconciliation).",
     "acceptance": [
       "Processing the same message twice yields the same final state and counters",
       "Expired reservation is not sold and its inventory is released",
@@ -295,7 +295,7 @@
     ],
     "issue": 17,
     "title": "Scheduled release of expired reservations",
-    "description": "Reactive scheduler that periodically finds expired reservations and, per order, atomically transitions it to expired and returns inventory to available. Safe under multiple app instances (conditional transition ensures one winner).",
+    "description": "Reactive scheduler that periodically finds expired reservations and, per order, atomically transitions it to expired and returns inventory to available. Safe under multiple app instances (conditional transition ensures one winner). NOTES (from F-009 review): expired reservations end in AVAILABLE (no EXPIRED state; spec: tickets return to available inventory), with the reason in the audit entry. findExpiredReservations is GSI-based (eventually consistent): rely on OrderRepository.transition's conditional write so concurrent sweepers have a single winner and treat OrderStatusConflictException as benign.",
     "acceptance": [
       "Expired reservations return their quantity to available exactly once",
       "Non-expired reservations are untouched",
