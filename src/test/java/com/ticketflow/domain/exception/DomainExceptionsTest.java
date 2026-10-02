@@ -65,4 +65,23 @@ class DomainExceptionsTest {
         assertThat(ex.actual()).isEqualTo(com.ticketflow.domain.model.TicketStatus.SOLD);
         assertThat(ex).hasMessageContaining("RESERVED").hasMessageContaining("SOLD");
     }
+
+    @Test
+    void idempotencyKeyReused_created_exposesDetails() {
+        var key = new com.ticketflow.domain.model.IdempotencyKey("k");
+        var ex = new IdempotencyKeyReusedException(key, OID);
+        assertThat(ex.key()).isEqualTo(key);
+        assertThat(ex.orderId()).isEqualTo(OID);
+        assertThat(ex).hasMessageContaining("o1");
+    }
+
+    @Test
+    void orderEnqueueFailed_created_exposesDetails() {
+        var cause = new RuntimeException("x");
+        var ex = new OrderEnqueueFailedException(OID, false, cause);
+        assertThat(ex.orderId()).isEqualTo(OID);
+        assertThat(ex.reservationReleased()).isFalse();
+        assertThat(ex).hasCause(cause).hasMessageContaining("NOT released");
+        assertThat(new OrderEnqueueFailedException(OID, true, cause)).hasMessageContaining("released");
+    }
 }

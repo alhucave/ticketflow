@@ -13,7 +13,8 @@ class PortsContractTest {
     @Test
     void ports_allMethods_returnMonoOrFlux() {
         List<Class<?>> ports = List.of(
-                EventRepository.class, InventoryRepository.class, OrderRepository.class, OrderQueuePublisher.class);
+                EventRepository.class, InventoryRepository.class, OrderRepository.class, OrderQueuePublisher.class,
+                OrderPlacementRepository.class);
         for (Class<?> port : ports) {
             assertThat(port.getDeclaredMethods()).isNotEmpty();
             for (Method m : port.getDeclaredMethods()) {

@@ -196,7 +196,7 @@
     "id": "F-012",
     "name": "usecase-purchase-request",
     "phase": 4,
-    "status": "pending",
+    "status": "in_progress",
     "depends_on": [
       "F-008",
       "F-009"
