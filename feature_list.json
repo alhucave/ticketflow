@@ -161,7 +161,7 @@
     "id": "F-010",
     "name": "usecase-events",
     "phase": 4,
-    "status": "in_progress",
+    "status": "done",
     "depends_on": [
       "F-007"
     ],

@@ -17,6 +17,7 @@ Una feature está verificada cuando `./init.sh` termina en verde y cada criterio
 | Unitario de casos de uso | JUnit 5 + Mockito + StepVerifier | Lógica con repositorios simulados |
 | Web | `WebTestClient` | Contratos HTTP, códigos de error |
 | Integración | Testcontainers (LocalStack) | Adaptadores DynamoDB y SQS reales |
+| Caso de uso extremo a extremo | Testcontainers + adaptadores reales | Los casos de uso son compatibles con el comportamiento real de los adaptadores (los mocks no detectan contratos incompatibles) |
 | Concurrencia | `StepVerifier` + `Flux.merge`/`parallel` | N compras simultáneas nunca sobrevenden |
 
 Las pruebas de integración se etiquetan `@Tag("integration")` y requieren Docker; en CI se ejecutan siempre: el workflow define `INCLUDE_INTEGRATION=true`, que `init.sh` traduce a `-PincludeIntegration`. En local, `INCLUDE_INTEGRATION=true ./init.sh` las activa (requiere Docker); sin la variable se excluyen.

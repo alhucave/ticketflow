@@ -1,8 +1,5 @@
 # Estado actual
 
-Feature en curso: F-010 — usecase-events
-Plan:
-- Puerto IdGenerator + InvalidEventException en domain
-- CreateEvent/GetEvent/ListEvents como clases sin Spring en usecase; beans en infrastructure.config.UseCaseConfig
-- Tests unitarios con StepVerifier + UseCaseArchitectureTest
-- Verificar con ./init.sh (y variante de integracion)
+Feature en curso: ninguna
+Ultimas completadas: F-001 a F-010 (APPROVED)
+Siguiente: F-011 — usecase-availability (y F-012, F-013, F-014 en Fase 4). Recordar C12.

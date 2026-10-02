@@ -13,3 +13,4 @@ Checklist que aplica el `reviewer` a cada feature.
 - C9: La cobertura global se mantiene ≥ 90%.
 - C10: El scope no excede la feature (sin cambios ajenos al `acceptance`).
 - C11: La documentación afectada (README, docs/) está actualizada.
+- C12: Cada caso de uso que combine puertos (repositorios, cola) tiene al menos una prueba de integración de punta a punta con los **adaptadores reales** (Testcontainers), y el reviewer comprobó que lo que hace cada adaptador (escrituras atómicas, condiciones, contratos de `save`/`create`) es compatible con cómo lo llama el caso de uso. Los mocks por sí solos no bastan.
