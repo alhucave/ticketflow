@@ -1,5 +1,5 @@
 # Estado actual
 
-Feature en curso: ninguna
-Ultimas completadas: F-001 a F-010 (APPROVED)
-Siguiente: F-011 — usecase-availability (y F-012, F-013, F-014 en Fase 4). Recordar C12.
+Feature en curso: F-011 — usecase-availability
+Plan: Availability record + GetAvailabilityUseCase (snapshot y stream con polling/distinctUntilChanged); bean en UseCaseConfig; tests unitarios con virtual time; IT con DynamoDB real (C12).
+Estado: implementado, init.sh verde (con y sin integracion); pendiente de reviewer.
