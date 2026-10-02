@@ -125,7 +125,7 @@
     "id": "F-008",
     "name": "inventory-repository",
     "phase": 3,
-    "status": "pending",
+    "status": "in_progress",
     "depends_on": [
       "F-006"
     ],

@@ -42,8 +42,8 @@ class DomainExceptionsTest {
     }
 
     @Test
-    void concurrentModification_created_exposesDetails() {
-        var ex = new ConcurrentModificationException(EID, 9L);
+    void concurrentInventoryModification_created_exposesDetails() {
+        var ex = new ConcurrentInventoryModificationException(EID, 9L);
         assertThat(ex.eventId()).isEqualTo(EID);
         assertThat(ex.expectedVersion()).isEqualTo(9L);
         assertThat(ex).hasMessageContaining("9");

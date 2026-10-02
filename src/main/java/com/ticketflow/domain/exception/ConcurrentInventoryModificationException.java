@@ -3,12 +3,12 @@ package com.ticketflow.domain.exception;
 import com.ticketflow.domain.model.EventId;
 
 /** An optimistic-locking conditional write failed because the version changed. */
-public class ConcurrentModificationException extends RuntimeException {
+public class ConcurrentInventoryModificationException extends RuntimeException {
 
     private final EventId eventId;
     private final long expectedVersion;
 
-    public ConcurrentModificationException(EventId eventId, long expectedVersion) {
+    public ConcurrentInventoryModificationException(EventId eventId, long expectedVersion) {
         super("Concurrent modification of inventory for event " + eventId.value()
                 + " (expected version " + expectedVersion + ")");
         this.eventId = eventId;
