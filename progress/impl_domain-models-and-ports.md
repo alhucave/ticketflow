@@ -34,3 +34,9 @@ BUILD SUCCESSFUL in 19s
 ==> init.sh OK
 ```
 (Ejecutado antes de pasar F-005 a in_progress; el estado se cambia despues y la validacion de init.sh lo permite: max 1 in_progress.)
+
+## Fix: venue
+
+- Files touched: src/main/java/com/ticketflow/domain/model/Event.java (added `String venue` after `startsAt`, validated non-null/non-blank with IllegalArgumentException like other fields); src/test/java/com/ticketflow/domain/model/EventTest.java (updated constructor calls, asserts venue, added null/empty/blank venue parameterized test).
+- Decisions: no other usages of `new Event(` existed in main or port tests, so nothing else changed. Feature not marked done.
+- init.sh: BUILD SUCCESSFUL (tests + jacocoTestCoverageVerification 90% green), final line `==> init.sh OK`.
