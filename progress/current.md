@@ -1,5 +1,5 @@
 # Estado actual
 
 Feature en curso: ninguna
-Ultimas completadas: F-001 a F-009 (APPROVED). Fase 3 completa.
-Siguiente: F-010 — usecase-events (Fase 4)
+Ultimas completadas: F-001 a F-010 (APPROVED)
+Siguiente: F-011 — usecase-availability (y F-012, F-013, F-014 en Fase 4). Recordar C12.
