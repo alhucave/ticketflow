@@ -73,7 +73,7 @@
     "id": "F-005",
     "name": "domain-models-and-ports",
     "phase": 2,
-    "status": "pending",
+    "status": "in_progress",
     "depends_on": [
       "F-004"
     ],
