@@ -19,7 +19,7 @@
     "id": "F-002",
     "name": "docker-compose-infra",
     "phase": 1,
-    "status": "in_progress",
+    "status": "done",
     "depends_on": [
       "F-001"
     ],
