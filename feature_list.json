@@ -232,7 +232,7 @@
     "id": "F-014",
     "name": "usecase-process-order",
     "phase": 4,
-    "status": "pending",
+    "status": "in_progress",
     "depends_on": [
       "F-008",
       "F-009"

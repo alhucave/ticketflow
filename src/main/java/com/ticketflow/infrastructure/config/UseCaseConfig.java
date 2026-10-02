@@ -4,6 +4,7 @@ import com.ticketflow.domain.model.EventId;
 import com.ticketflow.domain.port.EventRepository;
 import com.ticketflow.domain.port.IdGenerator;
 import com.ticketflow.domain.port.InventoryRepository;
+import com.ticketflow.domain.port.OrderFulfillmentRepository;
 import com.ticketflow.domain.port.OrderPlacementRepository;
 import com.ticketflow.domain.port.OrderQueuePublisher;
 import com.ticketflow.domain.port.OrderRepository;
@@ -13,6 +14,7 @@ import com.ticketflow.usecase.GetAvailabilityUseCase;
 import com.ticketflow.usecase.GetEventUseCase;
 import com.ticketflow.usecase.GetOrderStatusUseCase;
 import com.ticketflow.usecase.ListEventsUseCase;
+import com.ticketflow.usecase.ProcessOrderUseCase;
 import java.time.Clock;
 import java.time.Duration;
 import org.springframework.beans.factory.ObjectProvider;
@@ -49,6 +51,13 @@ public class UseCaseConfig {
     @Bean
     GetOrderStatusUseCase getOrderStatusUseCase(OrderRepository orders) {
         return new GetOrderStatusUseCase(orders);
+    }
+
+    @Bean
+    ProcessOrderUseCase processOrderUseCase(
+            OrderRepository orders, OrderFulfillmentRepository fulfillment, OrderPlacementRepository placement,
+            Clock clock) {
+        return new ProcessOrderUseCase(orders, fulfillment, placement, clock);
     }
 
     @Bean

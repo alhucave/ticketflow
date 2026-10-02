@@ -115,7 +115,7 @@ public class DynamoDbOrderPlacementRepository implements OrderPlacementRepositor
                 default -> throw new IllegalArgumentException("Cannot release a reservation in " + expected);
             };
             TransactWriteItemsRequest request = TransactWriteItemsRequest.builder()
-                    .transactItems(updateOrder(order, expected), putAudit(entry),
+                    .transactItems(updateOrder(order, expected, TicketStatus.AVAILABLE), putAudit(entry),
                             moveInventory(order.eventId(), order.quantity().value(), source, AVAILABLE))
                     .build();
             return execute(request).thenReturn(entry)
@@ -127,7 +127,7 @@ public class DynamoDbOrderPlacementRepository implements OrderPlacementRepositor
         return Mono.fromFuture(() -> client.transactWriteItems(request)).retryWhen(retry);
     }
 
-    private static TransactWriteItem moveInventory(EventId eventId, int quantity, String source, String target) {
+    static TransactWriteItem moveInventory(EventId eventId, int quantity, String source, String target) {
         return TransactWriteItem.builder()
                 .update(Update.builder()
                         .tableName(DynamoDbTables.INVENTORY)
@@ -143,7 +143,7 @@ public class DynamoDbOrderPlacementRepository implements OrderPlacementRepositor
     }
 
     /** Guards on status plus event and quantity, so the caller's copy of the order cannot misdrive the inventory. */
-    private static TransactWriteItem updateOrder(Order order, TicketStatus expected) {
+    static TransactWriteItem updateOrder(Order order, TicketStatus expected, TicketStatus target) {
         return TransactWriteItem.builder()
                 .update(Update.builder()
                         .tableName(DynamoDbTables.ORDERS)
@@ -155,7 +155,7 @@ public class DynamoDbOrderPlacementRepository implements OrderPlacementRepositor
                                 "#event", EVENT_ID, "#qty", QUANTITY))
                         .expressionAttributeValues(Map.of(
                                 ":expected", DynamoDbOrderRepository.s(expected.name()),
-                                ":target", DynamoDbOrderRepository.s(TicketStatus.AVAILABLE.name()),
+                                ":target", DynamoDbOrderRepository.s(target.name()),
                                 ":event", DynamoDbOrderRepository.s(order.eventId().value()),
                                 ":qty", n(order.quantity().value())))
                         .returnValuesOnConditionCheckFailure(ReturnValuesOnConditionCheckFailure.ALL_OLD)
@@ -163,7 +163,7 @@ public class DynamoDbOrderPlacementRepository implements OrderPlacementRepositor
                 .build();
     }
 
-    private static TransactWriteItem putAudit(OrderAuditEntry entry) {
+    static TransactWriteItem putAudit(OrderAuditEntry entry) {
         return TransactWriteItem.builder()
                 .put(Put.builder().tableName(DynamoDbTables.ORDER_AUDIT)
                         .item(DynamoDbOrderRepository.auditItem(entry)).build())
@@ -202,15 +202,15 @@ public class DynamoDbOrderPlacementRepository implements OrderPlacementRepositor
         return error;
     }
 
-    private static boolean isConditionFailure(List<CancellationReason> reasons, int index) {
+    static boolean isConditionFailure(List<CancellationReason> reasons, int index) {
         return reasons.size() > index && CONDITIONAL_CHECK_FAILED.equals(reasons.get(index).code());
     }
 
-    private static boolean hasItem(CancellationReason reason) {
+    static boolean hasItem(CancellationReason reason) {
         return reason.hasItem() && !reason.item().isEmpty();
     }
 
-    private static AttributeValue n(long value) {
+    static AttributeValue n(long value) {
         return AttributeValue.builder().n(Long.toString(value)).build();
     }
 }
