@@ -5,6 +5,7 @@ import static org.mockito.Mockito.mock;
 
 import com.ticketflow.domain.port.EventRepository;
 import com.ticketflow.domain.port.InventoryRepository;
+import com.ticketflow.domain.port.OrderFulfillmentRepository;
 import com.ticketflow.domain.port.OrderPlacementRepository;
 import com.ticketflow.domain.port.OrderQueuePublisher;
 import com.ticketflow.domain.port.OrderRepository;
@@ -33,6 +34,8 @@ class UseCaseConfigTest {
         assertThat(config.getEventUseCase(events, inventories)).isNotNull();
         assertThat(config.listEventsUseCase(events)).isNotNull();
         assertThat(config.getOrderStatusUseCase(mock(OrderRepository.class))).isNotNull();
+        assertThat(config.processOrderUseCase(mock(OrderRepository.class), mock(OrderFulfillmentRepository.class),
+                mock(OrderPlacementRepository.class), config.clock())).isNotNull();
     }
 
     @SuppressWarnings("unchecked")
