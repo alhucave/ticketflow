@@ -11,6 +11,7 @@ import com.ticketflow.usecase.RequestPurchaseUseCase;
 import com.ticketflow.usecase.CreateEventUseCase;
 import com.ticketflow.usecase.GetAvailabilityUseCase;
 import com.ticketflow.usecase.GetEventUseCase;
+import com.ticketflow.usecase.GetOrderStatusUseCase;
 import com.ticketflow.usecase.ListEventsUseCase;
 import java.time.Clock;
 import java.time.Duration;
@@ -43,6 +44,11 @@ public class UseCaseConfig {
     @Bean
     GetEventUseCase getEventUseCase(EventRepository events, InventoryRepository inventories) {
         return new GetEventUseCase(events, inventories);
+    }
+
+    @Bean
+    GetOrderStatusUseCase getOrderStatusUseCase(OrderRepository orders) {
+        return new GetOrderStatusUseCase(orders);
     }
 
     @Bean

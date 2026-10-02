@@ -138,6 +138,18 @@ class DynamoDbOrderRepositoryTest {
     }
 
     @Test
+    void findById_usesConsistentRead() {
+        when(client.getItem(any(GetItemRequest.class))).thenReturn(CompletableFuture.completedFuture(
+                GetItemResponse.builder().item(item(ORDER)).build()));
+
+        StepVerifier.create(repository.findById(OID)).expectNext(ORDER).verifyComplete();
+
+        var captor = ArgumentCaptor.forClass(GetItemRequest.class);
+        verify(client).getItem(captor.capture());
+        assertThat(captor.getValue().consistentRead()).isTrue();
+    }
+
+    @Test
     void findById_missing_completesEmpty() {
         when(client.getItem(any(GetItemRequest.class)))
                 .thenReturn(CompletableFuture.completedFuture(GetItemResponse.builder().build()));

@@ -215,7 +215,7 @@
     "id": "F-013",
     "name": "usecase-order-status",
     "phase": 4,
-    "status": "pending",
+    "status": "done",
     "depends_on": [
       "F-009"
     ],
@@ -333,7 +333,7 @@
     ],
     "issue": 19,
     "title": "Orders and availability REST endpoints",
-    "description": "POST /orders (Idempotency-Key header, returns 202 + orderId), GET /orders/{id}, GET /events/{id}/availability and GET /events/{id}/availability/stream (text/event-stream). NOTE (from F-011 review): GetAvailabilityUseCase.stream ends with an error once DynamoDB transient-error retries are exhausted; the SSE endpoint must resubscribe/retry with backoff (e.g. Flux.retryWhen) and never leak internal error details to the client. NOTE (from F-012 review): map IdempotentOrderNotActiveException (replayed key whose order was released) and IdempotencyKeyReusedException to non-202 responses (409); OrderEnqueueFailedException to a 5xx/503 telling the client to retry with a new Idempotency-Key.",
+    "description": "POST /orders (Idempotency-Key header, returns 202 + orderId), GET /orders/{id}, GET /events/{id}/availability and GET /events/{id}/availability/stream (text/event-stream). NOTE (from F-011 review): GetAvailabilityUseCase.stream ends with an error once DynamoDB transient-error retries are exhausted; the SSE endpoint must resubscribe/retry with backoff (e.g. Flux.retryWhen) and never leak internal error details to the client. NOTE (from F-012 review): map IdempotentOrderNotActiveException (replayed key whose order was released) and IdempotencyKeyReusedException to non-202 responses (409); OrderEnqueueFailedException to a 5xx/503 telling the client to retry with a new Idempotency-Key. NOTE (from F-013 review): OrderStatusView exposes reservationExpiresAt even for SOLD/COMPLIMENTARY orders; omit it from the REST response DTO when the status is final.",
     "acceptance": [
       "POST /orders returns 202 immediately with orderId",
       "Missing or malformed Idempotency-Key returns 400",
