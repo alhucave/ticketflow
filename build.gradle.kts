@@ -29,7 +29,7 @@ dependencies {
     // Security override of the Jackson 3.1.x line managed by Spring Boot 4.1.1 (3.1.5): fixes the fixable HIGH CVEs
     // found by Trivy (jackson-core/databind DoS). Gradle picks the highest platform version. Remove it once the
     // Spring Boot BOM ships Jackson >= 3.1.7.
-    implementation(platform("tools.jackson:jackson-bom:3.1.7"))
+    implementation(platform("tools.jackson:jackson-bom:3.2.3"))
 
     implementation("org.springframework.boot:spring-boot-starter-webflux")
     implementation("org.springframework.boot:spring-boot-starter-validation")
