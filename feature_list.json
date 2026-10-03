@@ -453,7 +453,7 @@
     "id": "F-026",
     "name": "aws-cloud-native-docs",
     "phase": 9,
-    "status": "pending",
+    "status": "done",
     "depends_on": [
       "F-025"
     ],

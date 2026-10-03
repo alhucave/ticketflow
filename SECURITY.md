@@ -12,4 +12,4 @@ Se confirmará la recepción y se informará del avance en ese mismo hilo privad
 
 ## Alcance
 
-Es un proyecto de demostración/prueba técnica sin despliegue en producción. Soporta únicamente la rama `main`. El modelo de amenazas, los controles y las limitaciones conocidas están en [`docs/security.md`](docs/security.md).
+Es un proyecto de demostración/prueba técnica sin despliegue en producción (el diseño de un despliegue en AWS, no ejecutado, está en [`docs/aws.md`](docs/aws.md#5-seguridad-en-la-nube)). Soporta únicamente la rama `main`. El modelo de amenazas, los controles y las limitaciones conocidas están en [`docs/security.md`](docs/security.md).

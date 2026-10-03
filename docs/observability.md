@@ -1,6 +1,6 @@
 # Observabilidad
 
-Qué se mide, cómo se expone y cómo se usa en la operación diaria (F-024). La parte de AWS (CloudWatch, X-Ray, alarmas reales) es F-026; aquí está la observabilidad **real de la aplicación**, que funciona igual en local y en producción.
+Qué se mide, cómo se expone y cómo se usa en la operación diaria (F-024). La parte de AWS (CloudWatch, X-Ray, alarmas) está **diseñada, sin desplegar**, en [`aws.md`](aws.md#6-observabilidad-en-aws); aquí está la observabilidad **real de la aplicación**, que funciona igual en local y en producción.
 
 ## Resumen
 
@@ -72,7 +72,7 @@ Todas con el prefijo `ticketflow.` (en Prometheus: puntos a `_`, contadores con 
 | `ticketflow.observability.queue-metrics.interval` | `15s` | periodo (mínimo `1s`) |
 | `ticketflow.observability.queue-metrics.timeout` | `5s` | un sondeo más lento se abandona y cuenta como error |
 
-**Edad del mensaje más antiguo: no se expone.** `GetQueueAttributes` no la devuelve (SQS solo publica `ApproximateAgeOfOldestMessage` en CloudWatch); calcularla desde la aplicación exigiría recibir mensajes (cambia su visibilidad y su `receiveCount`), que no es barato ni seguro. En AWS se usa la métrica de CloudWatch (F-026); en local, `visible` creciendo y `consumer.messages` sin avanzar dan la misma señal.
+**Edad del mensaje más antiguo: no se expone.** `GetQueueAttributes` no la devuelve (SQS solo publica `ApproximateAgeOfOldestMessage` en CloudWatch); calcularla desde la aplicación exigiría recibir mensajes (cambia su visibilidad y su `receiveCount`), que no es barato ni seguro. En AWS se usa la métrica de CloudWatch `ApproximateAgeOfOldestMessage` (ver las [alarmas](aws.md#64-alarmas)); en local, `visible` creciendo y `consumer.messages` sin avanzar dan la misma señal.
 
 ### Expiración, límites y dependencias
 
@@ -92,7 +92,7 @@ Dónde se cuenta cada cosa (útil al interpretar): las de negocio y los conflict
 
 ## Alertas y SLO sugeridos
 
-Reglas de ejemplo en PromQL (ajustar umbrales a la carga real). En AWS equivalen a alarmas de CloudWatch sobre las mismas métricas (F-026).
+Reglas de ejemplo en PromQL (ajustar umbrales a la carga real). En AWS equivalen a alarmas de CloudWatch sobre las mismas métricas (tabla con umbrales iniciales en [`aws.md`](aws.md#64-alarmas)).
 
 | Alerta | Expresión | Por qué |
 |--------|-----------|---------|
@@ -145,7 +145,7 @@ Volumen: una compra genera unas pocas líneas INFO (orden colocada, procesada, r
 
 ## Trazas
 
-No hay dependencia de OpenTelemetry (a propósito, por tamaño de imagen y superficie de ataque). Lo que sí hay son los **ganchos** para ello: el `correlationId` entra por la cabecera HTTP, vive en el contexto Reactor, se escribe en el MDC, viaja en el atributo del mensaje SQS y se restaura en el consumer. En producción la opción es **AWS X-Ray con el agente ADOT** (AWS Distro for OpenTelemetry): da trazas distribuidas API -> SQS -> consumer -> DynamoDB sin cambiar los casos de uso, y se documenta en F-026 junto con CloudWatch y las alarmas.
+No hay dependencia de OpenTelemetry (a propósito, por tamaño de imagen y superficie de ataque). Lo que sí hay son los **ganchos** para ello: el `correlationId` entra por la cabecera HTTP, vive en el contexto Reactor, se escribe en el MDC, viaja en el atributo del mensaje SQS y se restaura en el consumer. En producción la opción es **AWS X-Ray con el agente ADOT** (AWS Distro for OpenTelemetry): da trazas distribuidas API -> SQS -> consumer -> DynamoDB sin cambiar los casos de uso, y se discute en [`aws.md`](aws.md#63-trazas) (requiere un agente de OpenTelemetry en la imagen, que hoy no existe) junto con CloudWatch y las alarmas.
 
 ## Prometheus local (opcional)
 

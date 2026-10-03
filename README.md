@@ -17,9 +17,10 @@ Plataforma reactiva de procesamiento de eventos de ticketing (Java 25, Spring Bo
 11. [Observabilidad](#observabilidad)
 12. [Seguridad](#seguridad)
 13. [CI/CD](#cicd)
-14. [Decisiones de diseño](#decisiones-de-diseño)
-15. [Solución de problemas](#solución-de-problemas)
-16. [Limitaciones conocidas](#limitaciones-conocidas)
+14. [Despliegue en AWS (diseño)](#despliegue-en-aws-diseño)
+15. [Decisiones de diseño](#decisiones-de-diseño)
+16. [Solución de problemas](#solución-de-problemas)
+17. [Limitaciones conocidas](#limitaciones-conocidas)
 
 ## Inicio rápido
 
@@ -482,6 +483,13 @@ Modelo de amenazas, escaneos, endurecimiento de contenedores y limitaciones cono
 - **Dependabot** (`.github/dependabot.yml`): actualizaciones semanales agrupadas de Gradle (con su lockfile), GitHub Actions e imagen base del `Dockerfile` (fijada también por digest); cada PR pasa `verify` y los escaneos.
 - Detalle de los escaneos y cómo ejecutarlos en local: [`docs/security.md`](docs/security.md#cadena-de-suministro).
 
+## Despliegue en AWS (diseño)
+
+**Nada está desplegado en AWS**: ticketflow solo se ejecuta en local (DynamoDB Local y LocalStack). [`docs/aws.md`](docs/aws.md) es **diseño y estimación**, sin cuenta ni recursos reales: toda cifra de capacidad o coste es una estimación y nada se ha probado con carga en AWS. Contiene la arquitectura objetivo (ECS Fargate con un servicio `api` y otro `worker`, DynamoDB, SQS con DLQ, ALB con WAF, endpoints de VPC; diagramas Mermaid), los límites de escalabilidad (el inventario de un evento es un único ítem de DynamoDB) y su camino de evolución, seguridad en la nube (IAM de mínimo privilegio, secretos, OIDC), observabilidad (alarmas con umbrales), gobierno, una estimación de costes con precios reales de la lista pública de AWS, y la lista de lo que falta para producción.
+
+- [Alcance y estado](docs/aws.md#1-alcance-y-estado) · [Arquitectura](docs/aws.md#2-arquitectura-objetivo) · [Cómputo](docs/aws.md#3-cómputo-ecs-fargate) · [Datos y límites de escalabilidad](docs/aws.md#42-límites-de-escalabilidad-y-camino-de-evolución)
+- [Seguridad](docs/aws.md#5-seguridad-en-la-nube) · [Observabilidad y alarmas](docs/aws.md#6-observabilidad-en-aws) · [Costes](docs/aws.md#8-costes) · [Qué falta para producción](docs/aws.md#92-qué-falta-para-producción)
+
 ## Decisiones de diseño
 
 Detalle en [`docs/architecture.md`](docs/architecture.md#decisiones-clave).
@@ -515,10 +523,10 @@ Detalle en [`docs/architecture.md`](docs/architecture.md#decisiones-clave).
 
 ## Limitaciones conocidas
 
-- **Nada desplegado en AWS**: ticketflow se ejecuta solo en local (DynamoDB Local y LocalStack). La arquitectura de despliegue en AWS se documentará aparte (ver F-026).
+- **Nada desplegado en AWS**: ticketflow se ejecuta solo en local (DynamoDB Local y LocalStack). El diseño del despliegue en AWS (solo documentación) está en [`docs/aws.md`](docs/aws.md#1-alcance-y-estado).
 - **Sin autenticación de usuarios**: la `Idempotency-Key` no está ligada a un principal; las cortesías se auditan con un actor fijo; la clave de administración es un secreto compartido.
 - **El «pago» no existe**: la confirmación de la venta es automática (el consumidor lleva la orden de `RESERVED` a `SOLD`); `PENDING_CONFIRMATION` es el punto donde se integraría un cobro.
-- **Rate limiter por instancia** y basado en la dirección del socket (con IPv6 un cliente puede rotar direcciones): la protección real contra abuso necesita una capa de borde (ver F-026).
+- **Rate limiter por instancia** y basado en la dirección del socket (con IPv6 un cliente puede rotar direcciones): la protección real contra abuso necesita una capa de borde (ver el [diseño en AWS](docs/aws.md#54-borde-waf-rate-limit-y-ddos)).
 - `GET /events` recorre toda la tabla `events` (*scan*) y devuelve todos los eventos sin paginar; el stream SSE consulta DynamoDB una vez por intervalo y por cliente conectado.
 - No hay endpoints para modificar o cancelar eventos ni órdenes; una reserva solo se libera por expiración o fallo de publicación.
 - DynamoDB Local y LocalStack son imágenes de desarrollo sin escaneo de CVE en CI; LocalStack queda en `4.14.0`.
