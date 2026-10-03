@@ -380,7 +380,7 @@
     "id": "F-022",
     "name": "concurrency-tests",
     "phase": 8,
-    "status": "pending",
+    "status": "in_progress",
     "depends_on": [
       "F-019",
       "F-016",

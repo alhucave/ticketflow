@@ -159,6 +159,10 @@ Las cabeceras HTTP las limita Netty (8 KB por defecto).
 
 `SqsOrderConsumer` y `ReservationExpirationScheduler` usan un **token de generación** por arranque: un `stop()` seguido de `start()` mientras el ciclo anterior aún drena ya no deja dos bucles vivos (antes el viejo seguía repitiendo mientras `running` volvía a ser `true`).
 
+## Pruebas de concurrencia
+
+La suite `com.ticketflow.concurrency` ataca la aplicación real (HTTP concurrente, consumer SQS, job de expiración, DynamoDB Local y LocalStack mediante Testcontainers) con compras en alta contención, reintentos con la misma clave, mensajes duplicados y venenosos, fallos inyectados, expiración bajo carga y clientes que cancelan. Cada escenario termina con una comprobación de reconciliación entre `inventory`, `orders` y `order_audit`. Se ejecuta con `INCLUDE_INTEGRATION=true ./init.sh` (siempre en CI); detalle en [`docs/verification.md`](docs/verification.md).
+
 ## Observabilidad
 
 Métricas de negocio y de infraestructura (Micrometer, prefijo `ticketflow.`), logs JSON con correlation id y sondas de *liveness*/*readiness*. Catálogo de métricas, alertas sugeridas, cómo seguir una compra por `correlationId` en los logs y fragmento de Prometheus local: [`docs/observability.md`](docs/observability.md). Resumen:
