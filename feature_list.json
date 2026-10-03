@@ -288,7 +288,7 @@
     "id": "F-017",
     "name": "reservation-expiration-job",
     "phase": 6,
-    "status": "pending",
+    "status": "in_progress",
     "depends_on": [
       "F-008",
       "F-009"

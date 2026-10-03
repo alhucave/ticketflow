@@ -196,7 +196,7 @@ class DynamoDbOrderRepositoryTest {
         var requests = captor.getAllValues();
         assertThat(requests).allSatisfy(r -> {
             assertThat(r.indexName()).isEqualTo(DynamoDbTables.ORDERS_BY_STATUS_EXPIRY_INDEX);
-            assertThat(r.keyConditionExpression()).isEqualTo("#status = :status AND #expires < :now");
+            assertThat(r.keyConditionExpression()).isEqualTo("#status = :status AND #expires <= :now");
             assertThat(r.expressionAttributeValues().get(":now").s()).isEqualTo("2030-01-01T11:00:00.000000000Z");
         });
         assertThat(requests.get(0).expressionAttributeValues().get(":status").s()).isEqualTo("RESERVED");

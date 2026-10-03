@@ -76,6 +76,30 @@ Semántica **at-least-once**:
 - Apagado ordenado: se deja de hacer polling (un long poll en curso se cancela; sus mensajes reaparecen), se espera a los mensajes en vuelo hasta `shutdown-timeout` y después se libera el bucle. Spring espera por defecto 30 s por fase de apagado; mantén `shutdown-timeout` por debajo.
 - Inspeccionar la DLQ en local: `docker-compose exec localstack awslocal sqs receive-message --queue-url http://localhost:4566/000000000000/orders-dlq`.
 
+## Liberación automática de reservas expiradas
+
+Una reserva que no se confirma dentro de su plazo (`ticketflow.reservation.ttl`, 10 min) devuelve sus entradas al inventario disponible. `ReservationExpirationScheduler` (`infrastructure.scheduler`) ejecuta periódicamente `ReleaseExpiredReservationsUseCase`, que busca las órdenes `RESERVED`/`PENDING_CONFIRMATION` con `reservationExpiresAt <= ahora` (índice por `status` + `reservationExpiresAt`) y libera **cada una** con `OrderPlacementRepository.releaseReservation`: un único `TransactWriteItems` (orden a `AVAILABLE` condicionada al estado, auditoría con `reason = "reservation expired"` e inventario `reserved`/`pendingConfirmation` → `available`). No existen estados `EXPIRED`/`FAILED`.
+
+**Desactivado por defecto**: solo corre con `ticketflow.expiration.enabled=true` (`docker-compose.yml` lo activa para `app`), así que los contextos y tests sin DynamoDB no lo arrancan. Es un `SmartLifecycle`, igual que el consumidor SQS.
+
+Propiedades `ticketflow.expiration.*` (variables `TICKETFLOW_EXPIRATION_*`):
+
+| Propiedad | Por defecto | Significado |
+|-----------|-------------|-------------|
+| `enabled` | `false` | Arranca el job |
+| `interval` | `PT1M` | Pausa entre el fin de un barrido y el inicio del siguiente (no hay solapamiento en una instancia) |
+| `initial-delay` | `PT10S` | Espera antes del primer barrido tras el arranque |
+| `concurrency` | `4` | Órdenes liberadas en paralelo dentro de un barrido |
+| `max-per-sweep` | `500` | Máximo de órdenes por barrido; el resto se procesa en el siguiente |
+| `shutdown-timeout` | `PT20S` | Espera máxima al barrido en curso al detener la aplicación |
+
+Garantías:
+
+- **Varias instancias / consumidores concurrentes**: la consulta al índice es eventualmente consistente, así que solo da candidatas; la decisión la toma la escritura condicionada. Si dos barridos (o un barrido y `ProcessOrderUseCase`) compiten por la misma orden, gana exactamente uno; el perdedor recibe `OrderStatusConflictException`, que es benigna (se cuenta como `skippedConflicts`, no como error). Una orden que el barrido no ve (recién creada, índice atrasado) se libera en el siguiente.
+- **Frontera**: una reserva está expirada cuando `expiresAt <= ahora` (igual en el job y en `ProcessOrderUseCase`).
+- **Errores**: el fallo de una orden se registra y se cuenta (`failed`) sin abortar el barrido; el fallo de un barrido completo se registra y el job sigue en el siguiente intervalo.
+- Cada barrido registra `examined`, `released`, `skippedConflicts` y `failed`.
+
 ## Configuración de la disponibilidad en tiempo real
 
 - `ticketflow.availability.poll-interval` (por defecto `1s`): cada cuánto consulta el inventario el flujo de disponibilidad. Se puede fijar con la variable de entorno `TICKETFLOW_AVAILABILITY_POLL_INTERVAL`.

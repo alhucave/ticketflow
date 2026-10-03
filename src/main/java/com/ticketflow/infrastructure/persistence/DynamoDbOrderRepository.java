@@ -143,13 +143,18 @@ public class DynamoDbOrderRepository implements OrderRepository {
         return query(request).next().map(DynamoDbOrderRepository::fromItem);
     }
 
+    /**
+     * A reservation is expired when {@code reservationExpiresAt <= now} (the boundary instant counts as
+     * expired, like {@code ProcessOrderUseCase}). The comparison is lexicographic on the fixed-width
+     * ISO key, so it is exact to the nanosecond.
+     */
     @Override
     public Flux<Order> findExpiredReservations(Instant now) {
         return Flux.fromIterable(EXPIRABLE)
                 .concatMap(status -> query(QueryRequest.builder()
                         .tableName(DynamoDbTables.ORDERS)
                         .indexName(DynamoDbTables.ORDERS_BY_STATUS_EXPIRY_INDEX)
-                        .keyConditionExpression("#status = :status AND #expires < :now")
+                        .keyConditionExpression("#status = :status AND #expires <= :now")
                         .expressionAttributeNames(Map.of("#status", STATUS, "#expires", EXPIRES_AT))
                         .expressionAttributeValues(Map.of(
                                 ":status", s(status.name()), ":now", s(format(now))))

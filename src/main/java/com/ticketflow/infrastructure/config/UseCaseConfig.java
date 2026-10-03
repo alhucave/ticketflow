@@ -8,6 +8,7 @@ import com.ticketflow.domain.port.OrderFulfillmentRepository;
 import com.ticketflow.domain.port.OrderPlacementRepository;
 import com.ticketflow.domain.port.OrderQueuePublisher;
 import com.ticketflow.domain.port.OrderRepository;
+import com.ticketflow.usecase.ReleaseExpiredReservationsUseCase;
 import com.ticketflow.usecase.RequestPurchaseUseCase;
 import com.ticketflow.usecase.CreateEventUseCase;
 import com.ticketflow.usecase.GetAvailabilityUseCase;
@@ -18,12 +19,14 @@ import com.ticketflow.usecase.ProcessOrderUseCase;
 import java.time.Clock;
 import java.time.Duration;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import reactor.core.scheduler.Schedulers;
 
 /** Wires the framework-free use cases and their infrastructure helpers. */
 @Configuration
+@EnableConfigurationProperties(ExpirationProperties.class)
 public class UseCaseConfig {
 
     @Bean
@@ -56,6 +59,14 @@ public class UseCaseConfig {
             OrderRepository orders, OrderFulfillmentRepository fulfillment, OrderPlacementRepository placement,
             Clock clock) {
         return new ProcessOrderUseCase(orders, fulfillment, placement, clock);
+    }
+
+    @Bean
+    ReleaseExpiredReservationsUseCase releaseExpiredReservationsUseCase(
+            OrderRepository orders, OrderPlacementRepository placement, Clock clock,
+            ExpirationProperties expiration) {
+        return new ReleaseExpiredReservationsUseCase(
+                orders, placement, clock, expiration.concurrency(), expiration.maxPerSweep());
     }
 
     @Bean
