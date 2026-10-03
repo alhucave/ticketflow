@@ -38,7 +38,7 @@ docker-compose down -v                          # detiene todo y borra los datos
 ```
 
 - `up --build` tarda unos minutos la primera vez (compila la aplicación con Gradle dentro de Docker). Con Compose v1 (`docker-compose` de Python) `--wait` no existe: omítalo, `demo.sh` espera por sí mismo a que la app esté lista.
-- Sin `ADMIN_API_KEY` todo funciona salvo las cortesías, que responden `403` (el demo y Newman omiten esos pasos).
+- Sin `ADMIN_API_KEY` (ni al arrancar la pila ni al ejecutar el demo y Newman) todo funciona salvo las cortesías, que responden `403`: el demo y Newman omiten esos pasos. Si define la clave, debe ser **la misma** al arrancar la pila y al ejecutar los scripts.
 - API en `http://localhost:8080`; sondas y métricas en `http://localhost:8081`.
 - Con **Colima**, para las pruebas con Testcontainers exporte antes `DOCKER_HOST=unix://$HOME/.colima/default/docker.sock` y `TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock` (ver [Pruebas](#pruebas-y-cobertura)). `docker-compose` no lo necesita si su contexto de Docker ya apunta a Colima.
 
@@ -508,7 +508,7 @@ Detalle en [`docs/architecture.md`](docs/architecture.md#decisiones-clave).
 | LocalStack no arranca y pide `LOCALSTACK_AUTH_TOKEN` | Las versiones `2026.x` de LocalStack exigen un token; la pila fija `localstack/localstack:4.14.0`, la última que funciona sin él. No suba el tag de la imagen sin un token |
 | `POST /events/{id}/complimentary` responde `403 admin-disabled` | `ADMIN_API_KEY` no estaba definida al arrancar. Expórtela (o póngala en `.env`) y recree la app: `docker-compose up -d`. Con la clave definida, una ausente o incorrecta da `401` |
 | `429 rate-limit-exceeded` al ejecutar muchas escrituras seguidas | Es el límite por cliente (20 de ráfaga, 1/s). Espere `Retry-After` segundos o espacie las peticiones (`NEWMAN_DELAY_MS` en `run-newman.sh`) |
-| La primera compra tras recrear solo la app tarda hasta ~30 s en pasar a `SOLD` | Observado: un long poll del consumidor anterior puede quedar vivo en LocalStack y recibir el mensaje; reaparece al vencer el `visibility-timeout` (30 s). Es el comportamiento at-least-once, no se pierde nada; ocurre en local al reiniciar la app sin reiniciar LocalStack |
+| La primera compra tras recrear solo la app tarda hasta ~30 s en pasar a `SOLD` | Observado: un long poll del consumidor anterior puede quedar vivo en LocalStack y recibir el mensaje; reaparece al vencer el `visibility-timeout` (30 s). Es el comportamiento at-least-once, no se pierde nada; ocurre en local al reiniciar la app sin reiniciar LocalStack (no siempre). `demo.sh` espera hasta 60 s y la colección de Newman hasta 100 reintentos de *polling*, así que lo toleran |
 | `readiness` responde `503` justo tras arrancar | Normal durante unos segundos: la app crea las tablas de DynamoDB. `docker-compose up --wait` o `demo.sh` esperan a que esté lista |
 | Los datos desaparecen al reiniciar | DynamoDB Local corre en memoria (`-inMemory`) y LocalStack no persiste: es deliberado para desarrollo |
 | Newman no llega a la app | Ejecútelo con `./requests/run-newman.sh` (usa la red de compose). `localhost` dentro de un contenedor no es el anfitrión |

@@ -340,7 +340,7 @@
                   "",
                   "const body = pm.response.json();",
                   "const tries = Number(pm.collectionVariables.get('pollTries') || 0);",
-                  "if (body.status !== 'SOLD' && tries < 30) {",
+                  "if (body.status !== 'SOLD' && tries < 100) {",
                   "    pm.collectionVariables.set('pollTries', tries + 1);",
                   "    setTimeout(function () { pm.execution.setNextRequest(pm.info.requestName); }, 300);",
                   "} else {",
@@ -369,7 +369,7 @@
                 "{{orderId}}"
               ]
             },
-            "description": "Se repite a sí misma (setNextRequest) hasta que el consumer deja la orden en SOLD (máx. 30 reintentos)."
+            "description": "Se repite a sí misma (setNextRequest) hasta que el consumer deja la orden en SOLD (máx. 100 reintentos)."
           }
         },
         {

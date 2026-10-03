@@ -50,7 +50,8 @@ echo "orderId = $ORDER_ID  (Idempotency-Key = $KEY)"
 
 step "3. Poll the order until it is SOLD"
 STATUS=""
-for _ in $(seq 1 30); do
+# Up to 60 s: right after recreating only the app container, the first message can take ~30 s (README, Troubleshooting).
+for _ in $(seq 1 60); do
   BODY="$(curl -sS "$BASE_URL/orders/$ORDER_ID")"
   STATUS="$(printf '%s' "$BODY" | json_field status)"
   echo "status = $STATUS"
