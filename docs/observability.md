@@ -116,7 +116,7 @@ Reglas de ejemplo en PromQL (ajustar umbrales a la carga real). En AWS equivalen
 - **Contenedor** (imagen y `docker-compose.yml`): `LOGGING_STRUCTURED_FORMAT_CONSOLE=ecs` -> una línea = un objeto JSON en formato ECS de Spring Boot: `@timestamp`, `log.level`, `log.logger`, `message`, `process.thread.name`, `service.name`/`version`/`environment`, `ecs.version`, **`correlationId`** (MDC) y, en excepciones, `error.type`/`error.message`/`error.stack_trace`.
 - **Local** (`./gradlew bootRun`, IDE): sin esa variable se usa el patrón legible de siempre, `... [correlationId] mensaje`. Para ver JSON en local: `LOGGING_STRUCTURED_FORMAT_CONSOLE=ecs ./gradlew bootRun` (también vale `logstash`). Para el patrón legible en un contenedor, quitar la variable (la imagen la fija con `ENV` y `docker-compose.yml` en `environment`).
 - `service.name` sale de `spring.application.name`, `service.version` de la versión del proyecto (se sustituye al construir) y `service.environment` de `TICKETFLOW_ENVIRONMENT` (por defecto `local`).
-- Las excepciones se registran **con traza en el servidor** y nunca llegan al cliente (errores `problem+json` con texto fijo, ver README). Los logs nunca incluyen secretos: `X-Admin-Key`, credenciales de AWS y cuerpos de mensajes (probado en `StructuredLoggingTest`; la clave del cliente tampoco se registra).
+- Las excepciones se registran **con traza en el servidor** y nunca llegan al cliente (errores `problem+json` con texto fijo, ver el «Catálogo de errores» del README). Los logs nunca incluyen secretos: `X-Admin-Key`, credenciales de AWS y cuerpos de mensajes (probado en `StructuredLoggingTest`; la clave del cliente tampoco se registra).
 
 ### Seguir una compra por `correlationId`
 

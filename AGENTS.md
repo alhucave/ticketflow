@@ -12,10 +12,12 @@ Java 25 · Spring Boot 4.x · Spring WebFlux · Gradle (Kotlin DSL) · DynamoDB 
 |------|-----------|
 | `feature_list.json` | Fuente de verdad de las tareas (una entrada por feature) |
 | `progress/` | `current.md`, `history.md`, `impl_<name>.md`, `review_<name>.md` |
-| `docs/architecture.md` | Capas, dependencias, modelo de datos, decisiones |
+| `README.md` | Documento único de entrada: inicio rápido, configuración, API, errores, pruebas, CI/CD, decisiones, troubleshooting |
+| `docs/architecture.md` | Capas, diagramas Mermaid (componentes, secuencias, estados, modelo de datos), decisiones |
 | `docs/conventions.md` | Estilo, nombres, errores, git |
 | `docs/verification.md` | Qué significa "verificado" y cómo se prueba |
 | `CHECKPOINTS.md` | Checklist que aplica el reviewer |
+| `requests/` | Colección de Postman + entorno, `run-newman.sh` (Newman en Docker) y `demo.sh` (curl) |
 | `init.sh` | Verificación única: la usan implementer, reviewer y CI |
 
 ## Flujo de trabajo
