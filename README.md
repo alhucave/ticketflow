@@ -103,3 +103,45 @@ Garantías:
 ## Configuración de la disponibilidad en tiempo real
 
 - `ticketflow.availability.poll-interval` (por defecto `1s`): cada cuánto consulta el inventario el flujo de disponibilidad. Se puede fijar con la variable de entorno `TICKETFLOW_AVAILABILITY_POLL_INTERVAL`.
+
+## Endpoints
+
+API reactiva (Spring WebFlux, `Mono`/`Flux`) de eventos. Con `docker-compose up --build` la app escucha en `http://localhost:8080`.
+
+| Método | Ruta | Respuesta |
+|--------|------|-----------|
+| `POST` | `/events` | `201` + cabecera `Location: /events/{id}` + evento creado |
+| `GET` | `/events/{id}` | `200` evento + inventario (`available`, `reserved`, `pendingConfirmation`, `sold`, `complimentary`); `404` si no existe |
+| `GET` | `/events` | `200` lista de eventos **sin inventario** (para los contadores usar `GET /events/{id}`) |
+
+Validación del body de `POST /events`: `name` y `venue` no vacíos (máx. 200), `capacity` entre 1 y 1.000.000, `startsAt` obligatorio (instante ISO-8601). La regla de negocio "fecha futura" la aplica el caso de uso (`400`). El `id` lo genera el servidor.
+
+Los errores siguen RFC 7807 (`application/problem+json`) con `type`, `title`, `status`, `detail`; los fallos de validación añaden `violations` (`field`, `message`). Cubiertos: `400` (validación, JSON mal formado, evento inválido), `404` (evento inexistente) y `409` (evento duplicado). Nunca se exponen trazas ni mensajes internos.
+
+```bash
+# Crear un evento (fecha futura) -> 201 + Location
+curl -i -X POST http://localhost:8080/events -H 'Content-Type: application/json' \
+  -d '{"name":"Rock Night","startsAt":"2030-01-01T20:00:00Z","venue":"Arena","capacity":120}'
+# HTTP/1.1 201 Created
+# Location: /events/e8e867f4-5fc8-44e0-8c48-4bcb47f63a40
+# {"id":"e8e867f4-...","name":"Rock Night","startsAt":"2030-01-01T20:00:00Z","venue":"Arena","capacity":120}
+
+# Consultar el evento con su inventario
+curl -i http://localhost:8080/events/e8e867f4-5fc8-44e0-8c48-4bcb47f63a40
+# {"id":"e8e867f4-...","name":"Rock Night",...,"capacity":120,
+#  "inventory":{"available":120,"reserved":0,"pendingConfirmation":0,"sold":0,"complimentary":0}}
+
+# Listar eventos
+curl -i http://localhost:8080/events
+
+# Body inválido -> 400 con violations
+curl -i -X POST http://localhost:8080/events -H 'Content-Type: application/json' \
+  -d '{"name":"","venue":"A","capacity":0}'
+# {"type":"urn:ticketflow:problem:validation-error","title":"Validation failed","status":400,
+#  "detail":"The request body has invalid fields","violations":[{"field":"capacity","message":"must be greater than or equal to 1"},
+#  {"field":"name","message":"must not be blank"},{"field":"startsAt","message":"must not be null"}]}
+
+# Id inexistente -> 404
+curl -i http://localhost:8080/events/nope
+# {"type":"urn:ticketflow:problem:event-not-found","title":"Event not found","status":404,"detail":"Event not found: nope"}
+```
