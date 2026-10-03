@@ -24,9 +24,21 @@ public record OrderId(String value) {
      * primary-key uniqueness enforces "one order per key" without a secondary lookup.
      */
     public static OrderId fromIdempotencyKey(IdempotencyKey key) {
+        return derive("ticketflow:order:", key);
+    }
+
+    /**
+     * Same derivation under a different namespace, so a complimentary issuance and a purchase that
+     * happen to use the same idempotency key can never map to the same order id.
+     */
+    public static OrderId complimentaryFromIdempotencyKey(IdempotencyKey key) {
+        return derive("ticketflow:complimentary:", key);
+    }
+
+    private static OrderId derive(String namespace, IdempotencyKey key) {
         try {
             byte[] hash = MessageDigest.getInstance("SHA-256")
-                    .digest(("ticketflow:order:" + key.value()).getBytes(StandardCharsets.UTF_8));
+                    .digest((namespace + key.value()).getBytes(StandardCharsets.UTF_8));
             hash[6] = (byte) ((hash[6] & 0x0f) | 0x50);
             hash[8] = (byte) ((hash[8] & 0x3f) | 0x80);
             long most = 0;

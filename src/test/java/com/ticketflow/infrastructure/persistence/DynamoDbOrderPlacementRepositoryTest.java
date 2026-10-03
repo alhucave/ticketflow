@@ -261,4 +261,71 @@ class DynamoDbOrderPlacementRepositoryTest {
         StepVerifier.create(repository.releaseReservation(ORDER, TicketStatus.RESERVED, "actor", "r", NOW))
                 .expectError(TransactionCanceledException.class).verify();
     }
+
+    private static final Order COMPLIMENTARY =
+            Order.complimentary(new OrderId("o-c"), new EventId("e-1"), new Quantity(3), new IdempotencyKey("k-c"), NOW);
+
+    @Test
+    void issueComplimentary_success_sendsInventoryOrderAndAuditInOneTransaction() {
+        when(client.transactWriteItems(any(TransactWriteItemsRequest.class))).thenReturn(ok());
+
+        StepVerifier.create(repository.issueComplimentary(COMPLIMENTARY, "admin", "VIP"))
+                .expectNext(COMPLIMENTARY).verifyComplete();
+
+        var captor = ArgumentCaptor.forClass(TransactWriteItemsRequest.class);
+        verify(client).transactWriteItems(captor.capture());
+        var items = captor.getValue().transactItems();
+        assertThat(items).hasSize(3);
+        var inventory = items.get(0).update();
+        assertThat(inventory.tableName()).isEqualTo("inventory");
+        assertThat(inventory.conditionExpression()).contains("#src >= :qty");
+        assertThat(inventory.updateExpression()).contains("#version = #version + :one");
+        assertThat(inventory.expressionAttributeNames()).containsEntry("#src", "available")
+                .containsEntry("#dst", "complimentary");
+        assertThat(items.get(1).put().conditionExpression()).isEqualTo("attribute_not_exists(orderId)");
+        assertThat(items.get(1).put().item().get("status").s()).isEqualTo("COMPLIMENTARY");
+        var audit = items.get(2).put().item();
+        assertThat(audit.get("from").s()).isEqualTo("AVAILABLE");
+        assertThat(audit.get("to").s()).isEqualTo("COMPLIMENTARY");
+        assertThat(audit.get("actor").s()).isEqualTo("admin");
+        assertThat(audit.get("reason").s()).isEqualTo("VIP");
+    }
+
+    @Test
+    void issueComplimentary_orderNotComplimentary_failsWithoutCallingDynamo() {
+        StepVerifier.create(repository.issueComplimentary(ORDER, "admin", null))
+                .expectError(IllegalArgumentException.class).verify();
+        StepVerifier.create(repository.issueComplimentary(COMPLIMENTARY, " ", null))
+                .expectError(IllegalArgumentException.class).verify();
+        verify(client, never()).transactWriteItems(any(TransactWriteItemsRequest.class));
+    }
+
+    @Test
+    void issueComplimentary_orderExists_mapsToAlreadyExists() {
+        when(client.transactWriteItems(any(TransactWriteItemsRequest.class))).thenReturn(
+                canceled(reason("ConditionalCheckFailed", SOME_ITEM), reason("ConditionalCheckFailed", SOME_ITEM),
+                        reason("None", null)));
+
+        StepVerifier.create(repository.issueComplimentary(COMPLIMENTARY, "admin", null))
+                .expectError(OrderAlreadyExistsException.class).verify();
+    }
+
+    @Test
+    void issueComplimentary_inventoryConditionFails_mapsToInsufficientOrNotFound() {
+        when(client.transactWriteItems(any(TransactWriteItemsRequest.class))).thenReturn(
+                canceled(reason("ConditionalCheckFailed", SOME_ITEM), reason("None", null), reason("None", null)),
+                canceled(reason("ConditionalCheckFailed", null), reason("None", null), reason("None", null)));
+
+        StepVerifier.create(repository.issueComplimentary(COMPLIMENTARY, "admin", null))
+                .expectError(InsufficientInventoryException.class).verify();
+        StepVerifier.create(repository.issueComplimentary(COMPLIMENTARY, "admin", null))
+                .expectError(EventNotFoundException.class).verify();
+    }
+
+    @Test
+    void releaseReservation_fromComplimentary_isRejectedWithoutCallingDynamo() {
+        StepVerifier.create(repository.releaseReservation(COMPLIMENTARY, TicketStatus.COMPLIMENTARY, "a", "r", NOW))
+                .expectError(InvalidStateTransitionException.class).verify();
+        verify(client, never()).transactWriteItems(any(TransactWriteItemsRequest.class));
+    }
 }

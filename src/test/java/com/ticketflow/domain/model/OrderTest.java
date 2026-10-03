@@ -60,4 +60,32 @@ class OrderTest {
         assertThatThrownBy(() -> order(TicketStatus.SOLD).transitionTo(TicketStatus.AVAILABLE))
                 .isInstanceOf(InvalidStateTransitionException.class);
     }
+
+    @Test
+    void complimentary_factory_hasNoReservationWindow() {
+        Order order = Order.complimentary(OID, EID, new Quantity(2), KEY, NOW);
+        assertThat(order.status()).isEqualTo(TicketStatus.COMPLIMENTARY);
+        assertThat(order.reservationExpiresAt()).isEqualTo(NOW).isEqualTo(order.createdAt());
+    }
+
+    @Test
+    void constructor_complimentaryWithExpiryBeforeCreation_throws() {
+        assertThatThrownBy(() -> new Order(OID, EID, new Quantity(1), TicketStatus.COMPLIMENTARY, KEY,
+                NOW.minusSeconds(1), NOW)).isInstanceOf(IllegalArgumentException.class);
+    }
+
+    @Test
+    void transitionTo_availableToComplimentary_dropsReservationWindow() {
+        Order moved = order(TicketStatus.AVAILABLE).transitionTo(TicketStatus.COMPLIMENTARY);
+        assertThat(moved.status()).isEqualTo(TicketStatus.COMPLIMENTARY);
+        assertThat(moved.reservationExpiresAt()).isEqualTo(NOW);
+    }
+
+    @Test
+    void transitionTo_outOfComplimentary_alwaysThrows() {
+        Order comp = Order.complimentary(OID, EID, new Quantity(2), KEY, NOW);
+        for (TicketStatus target : TicketStatus.values()) {
+            assertThatThrownBy(() -> comp.transitionTo(target)).isInstanceOf(InvalidStateTransitionException.class);
+        }
+    }
 }

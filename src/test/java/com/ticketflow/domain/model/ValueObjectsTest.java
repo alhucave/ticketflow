@@ -65,4 +65,13 @@ class ValueObjectsTest {
         org.assertj.core.api.Assertions.assertThat(uuid.version()).isEqualTo(5);
         org.assertj.core.api.Assertions.assertThat(uuid.variant()).isEqualTo(2);
     }
+
+    @Test
+    void orderId_complimentaryFromIdempotencyKey_isDeterministicAndDistinctFromPurchase() {
+        var key = new IdempotencyKey("abc");
+        var id = OrderId.complimentaryFromIdempotencyKey(key);
+        org.assertj.core.api.Assertions.assertThat(OrderId.complimentaryFromIdempotencyKey(key)).isEqualTo(id);
+        org.assertj.core.api.Assertions.assertThat(id).isNotEqualTo(OrderId.fromIdempotencyKey(key));
+        org.assertj.core.api.Assertions.assertThat(java.util.UUID.fromString(id.value()).version()).isEqualTo(5);
+    }
 }

@@ -42,4 +42,20 @@ public interface OrderPlacementRepository {
      */
     Mono<OrderAuditEntry> releaseReservation(
             Order order, TicketStatus expected, String actor, String reason, Instant at);
+
+    /**
+     * In one transaction: moves {@code order.quantity()} tickets {@code available -> complimentary}
+     * (conditional on enough availability, bumping the inventory version), creates the order in
+     * COMPLIMENTARY and writes the audit entry {@code AVAILABLE -> COMPLIMENTARY} carrying
+     * {@code actor} and the optional {@code reason}. The tickets leave the available pool for good:
+     * COMPLIMENTARY is final and is never counted as sold.
+     *
+     * @param reason optional free text for the audit entry; {@code null} when none
+     * @return the order stored
+     * @throws com.ticketflow.domain.exception.OrderAlreadyExistsException when the order id is taken
+     *         (takes precedence over the inventory errors, so retries are recognised as such)
+     * @throws com.ticketflow.domain.exception.InsufficientInventoryException when not enough tickets are available
+     * @throws com.ticketflow.domain.exception.EventNotFoundException when the event has no inventory
+     */
+    Mono<Order> issueComplimentary(Order order, String actor, String reason);
 }

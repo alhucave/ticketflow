@@ -362,7 +362,7 @@
     "id": "F-021",
     "name": "complimentary-issuance",
     "phase": 7,
-    "status": "pending",
+    "status": "in_progress",
     "depends_on": [
       "F-008",
       "F-019"

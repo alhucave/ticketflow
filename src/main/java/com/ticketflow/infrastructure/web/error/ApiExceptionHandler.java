@@ -137,6 +137,7 @@ public class ApiExceptionHandler {
             case ReservationExpiredException e -> new Mapped(problem(HttpStatus.GONE, "reservation-expired",
                     "Reservation expired", "The reservation for this order has expired and can no longer be confirmed"));
             case RateLimitExceededException e -> rateLimited(e);
+            case AdminAccessDeniedException e -> adminDenied(e);
             /* The cause (queue failure) is logged by the use case and never exposed. */
             case OrderEnqueueFailedException e -> new Mapped(problem(HttpStatus.SERVICE_UNAVAILABLE,
                     "order-enqueue-failed", "Order could not be accepted",
@@ -162,6 +163,18 @@ public class ApiExceptionHandler {
                 "Concurrent modification",
                 "The resource was modified concurrently; retry the request shortly"));
         mapped.headers().set(HttpHeaders.RETRY_AFTER, seconds(CONCURRENT_RETRY_AFTER));
+        return mapped;
+    }
+
+    /** Fixed texts: never a hint about the key, only whether the route is closed (403) or needs credentials (401). */
+    private static Mapped adminDenied(AdminAccessDeniedException ex) {
+        if (ex.isDisabled()) {
+            return new Mapped(problem(HttpStatus.FORBIDDEN, "admin-disabled", "Admin access disabled",
+                    "Admin operations are not available"));
+        }
+        Mapped mapped = new Mapped(problem(HttpStatus.UNAUTHORIZED, "admin-unauthorized", "Unauthorized",
+                "Valid admin credentials are required"));
+        mapped.headers().set(HttpHeaders.WWW_AUTHENTICATE, "ApiKey");
         return mapped;
     }
 
