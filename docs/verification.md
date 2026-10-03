@@ -29,3 +29,18 @@ Las pruebas de integración se etiquetan `@Tag("integration")` y requieren Docke
 ## Cobertura
 
 - Mínimo 90% de líneas (JaCoCo). Se excluyen solo clases de arranque (`*Application`) y configuración trivial.
+
+## Suite de concurrencia de extremo a extremo (F-022)
+
+Paquete `com.ticketflow.concurrency` (todas `@Tag("integration")`, contexto completo con `RANDOM_PORT`, HTTP real con cientos de peticiones en vuelo, DynamoDB Local 3.3.1 y LocalStack 4.14.0 reales compartidos con `E2eContainers`; cada clase usa su cola y su contexto, que se cierra al terminar para que consumers y barridos no se solapen entre clases):
+
+| Clase | Escenarios |
+|-------|-----------|
+| `PurchaseConcurrencyIT` | alta contención (300 compras sobre capacidad 100 con un muestreador de disponibilidad), tormentas de reintentos con la misma clave (mismo y distinto payload), compras + cortesías + lecturas, evento inexistente (404 de extremo a extremo), clientes que cancelan a mitad de petición |
+| `MessageRedeliveryIT` | mensajes duplicados/reentregados enviados a la cola real, mensajes venenosos a la DLQ real, `stop()`/`start()` repetidos del consumer y del scheduler con mensajes en vuelo |
+| `FailureInjectionIT` | fallos transitorios (SQS reentrega y acaban `SOLD`) y permanentes (DLQ, reserva intacta, el job de expiración los libera); el fallo se inyecta con un decorador del adaptador real en un `@TestConfiguration` (sin ganchos en producción) |
+| `ExpiryUnderLoadIT` | dos barredores concurrentes liberan cada orden exactamente una vez; carrera consumer vs. barredores en la frontera de expiración (un solo desenlace terminal por orden) |
+
+**Comprobación de reconciliación** (`Reconciliation`, se ejecuta al final de cada escenario, leyendo DynamoDB directamente con lecturas consistentes): (a) `available + reserved + pendingConfirmation + sold + complimentary = capacity` y ningún contador negativo; (b) los contadores recalculados desde la tabla `orders` (suma de cantidades por estado) coinciden con los de `inventory`; (c) la auditoría de cada orden es una cadena válida de transiciones que empieza en su creación y termina en su estado actual; (d) ninguna orden aceptada (202/201) se pierde y, donde aplica, las rechazadas no dejaron orden. **Limitación**: la clave de ordenación de `order_audit` es `<timestamp>#<uuid>`, así que entradas del mismo instante se ordenan al azar y los relojes de distintos nodos pueden desfasarse; por eso la cadena se sigue por los enlaces `from -> to` y nunca por el orden de timestamps.
+
+Determinismo: sin `sleep` como aserción; todo resultado asíncrono se espera con Awaitility (plazos generosos) y se afirma sobre el estado final o sobre invariantes muestreadas; semillas fijas (`Random`). Ejecutar solo la suite: `INCLUDE_INTEGRATION=true ./gradlew -PincludeIntegration test --tests 'com.ticketflow.concurrency.*'` (con Colima: `DOCKER_HOST=unix://$HOME/.colima/default/docker.sock` y `TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock`). Dura del orden de 1,5-2 minutos.
