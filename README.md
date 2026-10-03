@@ -161,7 +161,7 @@ curl -N -H 'Accept: text/event-stream' http://localhost:8080/events/EVENT_ID/ava
 # data:{"available":18,"reserved":0,"pendingConfirmation":0,"sold":2,"complimentary":0,"capacity":20}
 ```
 
-Los errores siguen RFC 7807 (`application/problem+json`) con `type`, `title`, `status`, `detail`; los fallos de validación añaden `violations` (`field`, `message`). Cubiertos: `400` (validación, JSON mal formado, evento inválido), `404` (evento inexistente) y `409` (evento duplicado). Nunca se exponen trazas ni mensajes internos.
+Los errores siguen RFC 7807 (`application/problem+json`) con `type`, `title`, `status`, `detail`; los fallos de validación añaden `violations` (`field`, `message`). Cubiertos: `400` (validación, JSON mal formado, evento inválido), `404` (evento u orden inexistente), `409` (evento duplicado, conflictos de compras) y `503` (orden no encolada). Nunca se exponen trazas ni mensajes internos.
 
 ```bash
 # Crear un evento (fecha futura) -> 201 + Location
