@@ -345,7 +345,7 @@
     "id": "F-020",
     "name": "web-error-handling",
     "phase": 7,
-    "status": "pending",
+    "status": "in_progress",
     "depends_on": [
       "F-018"
     ],

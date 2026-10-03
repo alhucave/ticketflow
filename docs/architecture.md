@@ -71,3 +71,10 @@ Invariante: `available + reserved + pendingConfirmation + sold + complimentary =
 - **Idempotency-Key** en `POST /orders` para soportar reintentos del cliente.
 - **Java 25**: records, pattern matching en `switch` sobre estados, sealed types para resultados. Virtual threads solo donde se use código bloqueante (no en el camino reactivo).
 - **CD**: imagen publicada en `ghcr.io/alhucave/ticketflow` al crear un tag `v*`.
+
+## Manejo de errores y correlation id (F-020)
+
+- **Un traductor, una forma**: `ApiExceptionHandler.translate(Throwable, correlationId)` convierte cualquier excepción en `ProblemDetail` (`application/problem+json`; `problem(...)` es el único constructor). Lo usan el `@RestControllerAdvice` (errores dentro de controladores) y `ProblemWebExceptionHandler` (`WebExceptionHandler` con orden anterior al `DefaultErrorWebExceptionHandler` de Boot: rutas inexistentes, 405/406/415 de enrutado, excepciones de filtros como el futuro rate limiter), de modo que nunca aparecen la Whitelabel ni `path`/`trace`/`requestId`. Todo lo no mapeado es `500` con texto fijo; el error real se registra con traza.
+- **Correlation id**: `CorrelationIdWebFilter` (precedencia máxima) valida/genera el id, lo guarda en el exchange, lo escribe en el contexto Reactor (`correlationId`, que lee `SqsOrderQueuePublisher`) y lo devuelve en la cabecera de toda respuesta.
+- **Contexto -> MDC**: `io.micrometer:context-propagation` + `ThreadLocalAccessor` para la clave `correlationId` (MDC de SLF4J) registrado en `ContextRegistry` + `Hooks.enableAutomaticContextPropagation()` (`CorrelationConfig`). Reactor restaura el MDC alrededor de cada señal y lo limpia después, en cualquier hilo, por lo que no se filtra entre peticiones.
+- **Reintentos**: solo en adaptadores y para errores transitorios; la capa web comunica `Retry-After` (429, 409 de contención) pero no reintenta.
