@@ -1,0 +1,39 @@
+# Weekly dependency updates. Grouped to keep the PR count low; open PRs are capped per ecosystem.
+# Every update PR runs ci.yml (verify) and security.yml (scans) before it can be merged.
+version: 2
+updates:
+  - package-ecosystem: gradle
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    groups:
+      gradle-dependencies:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    labels: ["dependencies"]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 3
+    groups:
+      github-actions:
+        patterns: ["*"]
+    labels: ["dependencies"]
+
+  # Dockerfile base images (tag + digest). Images referenced from docker-compose.yml are third-party,
+  # dev-only and bumped by hand (LocalStack must stay on a release that runs without an auth token).
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 2
+    groups:
+      docker-base-images:
+        patterns: ["*"]
+    labels: ["dependencies"]

@@ -1,0 +1,103 @@
+name: Security
+
+# Supply-chain scans, independent of the required `verify` job in ci.yml.
+# Local equivalents (same pinned tool versions): see docs/security.md, "Escaneos en CI".
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    # Weekly (Monday 05:17 UTC): new CVEs appear without any change in the repo.
+    - cron: "17 5 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Pinned tool versions. The Trivy action is bumped by Dependabot (github-actions); the Trivy version and the
+  # gitleaks image (tag + digest) are bumped by hand (see docs/security.md).
+  TRIVY_VERSION: v0.75.0
+  GITLEAKS_IMAGE: ghcr.io/gitleaks/gitleaks:v8.30.1@sha256:c00b6bd0aeb3071cbcb79009cb16a60dd9e0a7c60e2be9ab65d25e6bc8abbb7f
+
+jobs:
+  dependencies:
+    name: Dependency vulnerabilities (Trivy)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Reads gradle.lockfile (Gradle dependency locking). Fails only on FIXABLE HIGH/CRITICAL findings;
+      # accepted exceptions live in .trivyignore with justification and review date.
+      - name: Scan Gradle lockfile
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: ${{ env.TRIVY_VERSION }}
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          trivyignores: .trivyignore
+          skip-dirs: build,.gradle
+
+  secrets:
+    name: Secret scanning (gitleaks)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout (full history)
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      # Scans every commit reachable from the checkout (git history). The narrowly scoped allowlist
+      # for test fixtures is in .gitleaks.toml. Findings are redacted in the log and fail the job.
+      # safe.directory: the checkout is owned by the runner user, not by root inside the container; without it git
+      # refuses the repository and gitleaks reports "0 commits scanned / no leaks found" (a silent false negative),
+      # so the step also fails when it did not scan any commit.
+      - name: Scan git history
+        run: |
+          set -o pipefail
+          docker run --rm \
+            -e GIT_CONFIG_COUNT=1 -e GIT_CONFIG_KEY_0=safe.directory -e GIT_CONFIG_VALUE_0=/repo \
+            -v "$PWD:/repo" "$GITLEAKS_IMAGE" git --redact --no-banner -c /repo/.gitleaks.toml /repo 2>&1 | tee gitleaks-git.log
+          if grep -qE '(^|[^0-9])0 commits scanned|ERR' gitleaks-git.log; then
+            echo "gitleaks did not scan the history correctly" >&2
+            exit 1
+          fi
+          rm -f gitleaks-git.log
+
+      - name: Scan working tree
+        run: |
+          docker run --rm -v "$PWD:/repo" -w /repo "$GITLEAKS_IMAGE" dir --redact --no-banner -c .gitleaks.toml .
+
+  image:
+    name: Container image vulnerabilities (Trivy)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Built locally on the runner and never pushed.
+      - name: Build image (no push)
+        run: docker build --tag ticketflow:scan .
+
+      - name: Scan image
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: ${{ env.TRIVY_VERSION }}
+          scan-type: image
+          image-ref: ticketflow:scan
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+          trivyignores: .trivyignore

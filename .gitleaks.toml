@@ -1,0 +1,13 @@
+# gitleaks configuration (secret scan in .github/workflows/security.yml).
+# Extends the default ruleset; the only exception is narrowly scoped (see docs/security.md, "Escaneo de secretos").
+title = "ticketflow gitleaks config"
+
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Unit-test fixtures: Idempotency-Key literals and fake X-Admin-Key constants in test sources (not credentials)."
+# Applies ONLY to the entropy-based generic rule and ONLY to Java test sources. Every vendor-specific rule
+# (AWS keys, private keys, tokens...) still applies to src/test, and generic-api-key still applies everywhere else.
+targetRules = ["generic-api-key"]
+paths = ['''(^|/)src/test/java/.*\.java$''']

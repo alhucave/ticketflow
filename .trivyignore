@@ -1,0 +1,10 @@
+# Trivy accepted findings (used by .github/workflows/security.yml for the dependency and the image scans).
+# Policy: the scans already fail only on FIXABLE HIGH/CRITICAL findings (--ignore-unfixed), so unfixed
+# vulnerabilities do not need an entry. Add one here ONLY for a fixable finding that is demonstrably
+# not exploitable in this application, one per line with the format:
+#
+#   <CVE-or-advisory-id>   # reason | not-exploitable because ... | review by YYYY-MM-DD
+#
+# Every entry needs an owner-visible justification and a review date; remove it once the fix is applied.
+#
+# Current entries: none (state after the local scans of F-023 part 2: 0 fixable HIGH/CRITICAL findings).
