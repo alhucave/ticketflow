@@ -8,6 +8,7 @@ import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.ticketflow.infrastructure.messaging.SqsTestQueues;
 import com.ticketflow.infrastructure.persistence.DynamoDbTables;
+import com.ticketflow.infrastructure.web.E2eContainers;
 import com.ticketflow.infrastructure.web.PurchaseAcceptedResponse;
 import java.io.ByteArrayOutputStream;
 import java.net.Socket;
@@ -96,6 +97,7 @@ class ErrorHandlingEndToEndIT {
         registry.add("ticketflow.sqs.orders-queue-name", () -> queues.name());
         registry.add("ticketflow.sqs.consumer.enabled", () -> "false");
         registry.add("ticketflow.expiration.enabled", () -> "false");
+        E2eContainers.generousRateLimits(registry);
     }
 
     @Autowired

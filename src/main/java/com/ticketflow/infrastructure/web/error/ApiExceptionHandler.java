@@ -14,6 +14,8 @@ import com.ticketflow.domain.exception.OrderNotFoundException;
 import com.ticketflow.domain.exception.OrderStatusConflictException;
 import com.ticketflow.domain.exception.ReservationExpiredException;
 import com.ticketflow.infrastructure.web.InvalidIdempotencyKeyException;
+import com.ticketflow.infrastructure.web.InvalidPathIdException;
+import com.ticketflow.infrastructure.web.InvalidRequestFieldException;
 import java.net.URI;
 import java.time.Duration;
 import java.util.Comparator;
@@ -65,6 +67,8 @@ public class ApiExceptionHandler {
             HttpHeaders.RETRY_AFTER);
     /** Suggested wait after losing an optimistic-locking race (transient contention). */
     private static final Duration CONCURRENT_RETRY_AFTER = Duration.ofSeconds(1);
+    /** Suggested wait when a dependency (DynamoDB, SQS) is throttling or unreachable. */
+    private static final Duration UNAVAILABLE_RETRY_AFTER = Duration.ofSeconds(5);
 
     /** Catch-all for anything raised inside a controller: mapped when known, otherwise a generic 500. */
     @ExceptionHandler(Throwable.class)
@@ -99,6 +103,10 @@ public class ApiExceptionHandler {
             case ServerWebInputException input -> new Mapped(problem(HttpStatus.BAD_REQUEST, "malformed-request",
                     "Malformed request",
                     "The request could not be read: check the JSON syntax and field formats"));
+            case InvalidRequestFieldException e -> validation(List.of(new Violation(e.field(), e.getMessage())));
+            /* Fixed text: a path id that cannot exist is never echoed back. */
+            case InvalidPathIdException e -> new Mapped(problem(HttpStatus.NOT_FOUND, "not-found", "Not found",
+                    "The requested resource was not found"));
             case InvalidEventException e -> new Mapped(problem(HttpStatus.BAD_REQUEST, "invalid-event",
                     "Invalid event", e.getMessage()));
             case InvalidIdempotencyKeyException e -> new Mapped(problem(HttpStatus.BAD_REQUEST,
@@ -143,13 +151,21 @@ public class ApiExceptionHandler {
                     "order-enqueue-failed", "Order could not be accepted",
                     "The order could not be accepted right now; you may retry with a new Idempotency-Key"));
             case ErrorResponse framework -> framework(framework, ex, correlationId);
+            /* After every business mapping: only a failure that is none of them can be an outage. */
+            case Throwable transientFailure when TransientFailures.isTransient(transientFailure) ->
+                    unavailable(transientFailure, correlationId);
             default -> internal(HttpStatus.INTERNAL_SERVER_ERROR, ex, correlationId);
         };
     }
 
     private static Mapped validation(WebExchangeBindException ex) {
-        List<Violation> violations = ex.getFieldErrors().stream()
+        return validation(ex.getFieldErrors().stream()
                 .map(error -> new Violation(error.getField(), error.getDefaultMessage()))
+                .toList());
+    }
+
+    private static Mapped validation(List<Violation> unsorted) {
+        List<Violation> violations = unsorted.stream()
                 .sorted(Comparator.comparing(Violation::field).thenComparing(Violation::message))
                 .toList();
         ProblemDetail problem = problem(HttpStatus.BAD_REQUEST, "validation-error", "Validation failed",
@@ -175,6 +191,21 @@ public class ApiExceptionHandler {
         Mapped mapped = new Mapped(problem(HttpStatus.UNAUTHORIZED, "admin-unauthorized", "Unauthorized",
                 "Valid admin credentials are required"));
         mapped.headers().set(HttpHeaders.WWW_AUTHENTICATE, "ApiKey");
+        return mapped;
+    }
+
+    /**
+     * A dependency is throttling, timing out or unreachable (retries at the adapter are already spent):
+     * {@code 503} + {@code Retry-After}. The request may have had no effect or only part of one, but every
+     * write path is idempotent or compensating, so retrying is safe. The cause is logged by class only.
+     */
+    private static Mapped unavailable(Throwable ex, String correlationId) {
+        withCorrelationId(correlationId, () -> LOG.warn("Dependency unavailable ({}); answering 503",
+                ex.getClass().getSimpleName()));
+        Mapped mapped = new Mapped(problem(HttpStatus.SERVICE_UNAVAILABLE, "service-unavailable",
+                "Service temporarily unavailable",
+                "A required service is temporarily unavailable; retry shortly"));
+        mapped.headers().set(HttpHeaders.RETRY_AFTER, seconds(UNAVAILABLE_RETRY_AFTER));
         return mapped;
     }
 

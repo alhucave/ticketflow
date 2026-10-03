@@ -15,6 +15,7 @@ import com.ticketflow.domain.model.OrderId;
 import com.ticketflow.domain.model.Quantity;
 import com.ticketflow.domain.model.TicketStatus;
 import com.ticketflow.infrastructure.config.CorrelationConfig;
+import com.ticketflow.infrastructure.config.RateLimitConfig;
 import com.ticketflow.infrastructure.web.error.ApiExceptionHandler;
 import com.ticketflow.infrastructure.web.error.CorrelationIdWebFilter;
 import com.ticketflow.infrastructure.web.error.ProblemWebExceptionHandler;
@@ -37,8 +38,10 @@ import reactor.core.publisher.Mono;
 /** HTTP contract of the complimentary endpoint, with the real admin filter and error handlers. */
 @WebFluxTest(controllers = ComplimentaryController.class)
 @Import({ApiExceptionHandler.class, ProblemWebExceptionHandler.class, CorrelationIdWebFilter.class,
-        CorrelationConfig.class, AdminKeyWebFilter.class})
-@TestPropertySource(properties = "ticketflow.admin.api-key=test-admin-key")
+        CorrelationConfig.class, AdminKeyWebFilter.class, RateLimitConfig.class})
+// Generous budgets: this class makes many requests and deliberate wrong-key attempts from one address.
+@TestPropertySource(properties = {"ticketflow.admin.api-key=test-admin-key",
+        "ticketflow.rate-limit.admin-failure-capacity=1000", "ticketflow.rate-limit.capacity=1000"})
 class ComplimentaryControllerTest {
 
     private static final String BODY = "{\"quantity\":4,\"reason\":\"VIP guests\"}";
@@ -75,7 +78,7 @@ class ComplimentaryControllerTest {
     void issue_validRequest_returns201WithLocationAndBody() {
         when(useCase.execute(any())).thenReturn(Mono.just(result(false)));
 
-        post("test-admin-key", "key-1", BODY).expectStatus().isCreated()
+        post("test-admin-key", "key-0123456789abcdef", BODY).expectStatus().isCreated()
                 .expectHeader().valueEquals("Location", "/orders/ord-c")
                 .expectBody()
                 .jsonPath("$.orderId").isEqualTo("ord-c")
@@ -88,7 +91,7 @@ class ComplimentaryControllerTest {
         verify(useCase).execute(captor.capture());
         assertThat(captor.getValue().eventId()).isEqualTo(new EventId("evt-1"));
         assertThat(captor.getValue().quantity()).isEqualTo(new Quantity(4));
-        assertThat(captor.getValue().idempotencyKey()).isEqualTo(new IdempotencyKey("key-1"));
+        assertThat(captor.getValue().idempotencyKey()).isEqualTo(new IdempotencyKey("key-0123456789abcdef"));
         assertThat(captor.getValue().reason()).isEqualTo("VIP guests");
     }
 
@@ -96,14 +99,14 @@ class ComplimentaryControllerTest {
     void issue_replay_returnsSameBodyAndStatus() {
         when(useCase.execute(any())).thenReturn(Mono.just(result(true)));
 
-        post("test-admin-key", "key-1", "{\"quantity\":4}").expectStatus().isCreated()
+        post("test-admin-key", "key-0123456789abcdef", "{\"quantity\":4}").expectStatus().isCreated()
                 .expectHeader().valueEquals("Location", "/orders/ord-c")
                 .expectBody().jsonPath("$.orderId").isEqualTo("ord-c").jsonPath("$.status").isEqualTo("COMPLIMENTARY");
     }
 
     @Test
     void issue_missingAdminKey_is401ProblemAndNeverReachesUseCase() {
-        post(null, "key-1", BODY).expectStatus().isUnauthorized()
+        post(null, "key-0123456789abcdef", BODY).expectStatus().isUnauthorized()
                 .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
                 .expectBody()
                 .jsonPath("$.type").isEqualTo(PROBLEM + "admin-unauthorized")
@@ -114,7 +117,7 @@ class ComplimentaryControllerTest {
     @ParameterizedTest
     @ValueSource(strings = {"wrong", "test-admin-ke", "TEST-ADMIN-KEY", ""})
     void issue_wrongAdminKey_is401WithFixedMessage(String supplied) {
-        var body = post(supplied, "key-1", BODY).expectStatus().isUnauthorized()
+        var body = post(supplied, "key-0123456789abcdef", BODY).expectStatus().isUnauthorized()
                 .expectBody(String.class).returnResult().getResponseBody();
         assertThat(body).doesNotContain("test-admin-key").contains("Valid admin credentials are required");
         if (!supplied.isEmpty()) {
@@ -123,10 +126,20 @@ class ComplimentaryControllerTest {
         verifyNoInteractions(useCase);
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {"..%2Fetc", "a%20b", "%3Cb%3E", "caf%C3%A9"})
+    void issue_malformedEventId_is404WithFixedTextAndNeverEchoesInput(String id) {
+        var body = post(id, "test-admin-key", "key-0123456789abcdef", BODY).expectStatus().isNotFound()
+                .expectBody(String.class).returnResult().getResponseBody();
+        assertThat(body).contains("The requested resource was not found").doesNotContain("etc")
+                .doesNotContain("<b>").doesNotContain(id);
+        verifyNoInteractions(useCase);
+    }
+
     @Test
     void issue_adminCheckPrecedesValidation_invalidBodyWithoutKeyIs401Not400() {
         post(null, null, "{\"quantity\":0}").expectStatus().isUnauthorized();
-        post("test-admin-key", "key-1", "{\"quantity\":0}").expectStatus().isBadRequest();
+        post("test-admin-key", "key-0123456789abcdef", "{\"quantity\":0}").expectStatus().isBadRequest();
     }
 
     @Test
@@ -147,13 +160,13 @@ class ComplimentaryControllerTest {
     @ValueSource(strings = {"{}", "{\"quantity\":0}", "{\"quantity\":1001}", "{\"quantity\":-1}",
             "{\"quantity\":1,\"reason\":\"bad\\u0007bell\"}", "not json"})
     void issue_invalidBody_is400(String body) {
-        post("test-admin-key", "key-1", body).expectStatus().isBadRequest();
+        post("test-admin-key", "key-0123456789abcdef", body).expectStatus().isBadRequest();
         verifyNoInteractions(useCase);
     }
 
     @Test
     void issue_reasonTooLong_is400WithViolation() {
-        post("test-admin-key", "key-1", "{\"quantity\":1,\"reason\":\"" + "x".repeat(201) + "\"}")
+        post("test-admin-key", "key-0123456789abcdef", "{\"quantity\":1,\"reason\":\"" + "x".repeat(201) + "\"}")
                 .expectStatus().isBadRequest()
                 .expectBody().jsonPath("$.violations[0].field").isEqualTo("reason");
     }
@@ -161,14 +174,14 @@ class ComplimentaryControllerTest {
     @Test
     void issue_maxQuantity_isAccepted() {
         when(useCase.execute(any())).thenReturn(Mono.just(result(false)));
-        post("test-admin-key", "key-1", "{\"quantity\":1000}").expectStatus().isCreated();
+        post("test-admin-key", "key-0123456789abcdef", "{\"quantity\":1000}").expectStatus().isCreated();
     }
 
     @Test
     void issue_unknownEvent_is404() {
         when(useCase.execute(any())).thenReturn(Mono.error(new EventNotFoundException(new EventId("evt-1"))));
 
-        post("test-admin-key", "key-1", BODY).expectStatus().isNotFound()
+        post("test-admin-key", "key-0123456789abcdef", BODY).expectStatus().isNotFound()
                 .expectBody().jsonPath("$.type").isEqualTo(PROBLEM + "event-not-found");
     }
 
@@ -177,16 +190,16 @@ class ComplimentaryControllerTest {
         when(useCase.execute(any())).thenReturn(
                 Mono.error(new InsufficientInventoryException(new EventId("evt-1"), new Quantity(4))));
 
-        post("test-admin-key", "key-1", BODY).expectStatus().isEqualTo(409)
+        post("test-admin-key", "key-0123456789abcdef", BODY).expectStatus().isEqualTo(409)
                 .expectBody().jsonPath("$.type").isEqualTo(PROBLEM + "insufficient-inventory");
     }
 
     @Test
     void issue_keyReusedWithDifferentPayload_is409() {
         when(useCase.execute(any())).thenReturn(
-                Mono.error(new IdempotencyKeyReusedException(new IdempotencyKey("key-1"), ORDER)));
+                Mono.error(new IdempotencyKeyReusedException(new IdempotencyKey("key-0123456789abcdef"), ORDER)));
 
-        post("test-admin-key", "key-1", BODY).expectStatus().isEqualTo(409)
+        post("test-admin-key", "key-0123456789abcdef", BODY).expectStatus().isEqualTo(409)
                 .expectBody().jsonPath("$.type").isEqualTo(PROBLEM + "idempotency-key-reused");
     }
 

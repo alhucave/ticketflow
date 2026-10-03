@@ -40,6 +40,12 @@ public final class AdminKeyGuard {
         }
     }
 
+    /** Never exposes the key or its digest. */
+    @Override
+    public String toString() {
+        return "AdminKeyGuard[enabled=" + enabled() + "]";
+    }
+
     private static byte[] digest(String value) {
         try {
             return MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8));

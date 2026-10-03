@@ -31,11 +31,13 @@ import reactor.core.publisher.Mono;
  *       released in a second transaction and the failure is surfaced, never swallowed.</li>
  * </ol>
  *
- * <p>A replayed key returns the existing order as it stands and does not publish again, unless that
- * order was released (AVAILABLE): then {@link IdempotentOrderNotActiveException} is raised and the
- * client must use a new key. If the
- * first attempt crashed between the transaction and the publish, the reservation is reclaimed when
- * it expires.
+ * <p>A replayed key returns the existing order as it stands, unless that order was released
+ * (AVAILABLE): then {@link IdempotentOrderNotActiveException} is raised and the client must use a new
+ * key. If the existing order is still RESERVED, its message is published again, best effort: the first
+ * attempt may have died between the transaction and the publish, which would leave a reservation with
+ * no message. A duplicate message is harmless (the consumer is idempotent per order); a failed
+ * republish neither fails the replay nor releases anything (the reservation expires on its own). Orders
+ * past RESERVED were already picked up from the queue and are never republished.
  */
 public class RequestPurchaseUseCase {
 
@@ -109,7 +111,21 @@ public class RequestPurchaseUseCase {
                         return Mono.<RequestPurchaseResult>error(
                                 new IdempotentOrderNotActiveException(command.idempotencyKey(), existing.id()));
                     }
+                    if (existing.status() == TicketStatus.RESERVED) {
+                        return republish(existing).thenReturn(RequestPurchaseResult.of(existing, true));
+                    }
                     return Mono.just(RequestPurchaseResult.of(existing, true));
+                });
+    }
+
+    /** Best effort: never fails, never compensates. Logs the failure class only, no internals. */
+    private Mono<Void> republish(Order existing) {
+        return Mono.defer(() -> queue.publish(existing))
+                .doOnSuccess(done -> LOG.info("Replay of order {} republished its message", existing.id().value()))
+                .onErrorResume(error -> {
+                    LOG.warn("Replay of order {} could not republish its message ({}); the reservation stays "
+                            + "and expires on its own", existing.id().value(), error.getClass().getSimpleName());
+                    return Mono.empty();
                 });
     }
 }

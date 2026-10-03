@@ -50,10 +50,16 @@ class OrderControllerTest {
     void setUp() {
         LocalValidatorFactoryBean validator = new LocalValidatorFactoryBean();
         validator.afterPropertiesSet();
-        client = WebTestClient.bindToController(new OrderController(purchase, status))
+        client = WebTestClient.bindToController(new OrderController(purchase, status, 10))
                 .controllerAdvice(new ApiExceptionHandler())
                 .validator(validator)
                 .build();
+    }
+
+    private static LocalValidatorFactoryBean validator() {
+        LocalValidatorFactoryBean validator = new LocalValidatorFactoryBean();
+        validator.afterPropertiesSet();
+        return validator;
     }
 
     private WebTestClient.ResponseSpec post(String key, String body) {
@@ -72,7 +78,7 @@ class OrderControllerTest {
     void purchase_validRequest_returns202WithLocationAndBody() {
         when(purchase.execute(any())).thenReturn(Mono.just(accepted()));
 
-        post("key-1", BODY).expectStatus().isAccepted()
+        post("key-0123456789abcdef", BODY).expectStatus().isAccepted()
                 .expectHeader().valueEquals("Location", "/orders/ord-1")
                 .expectBody()
                 .jsonPath("$.orderId").isEqualTo("ord-1")
@@ -82,7 +88,7 @@ class OrderControllerTest {
         ArgumentCaptor<RequestPurchaseCommand> captor = ArgumentCaptor.forClass(RequestPurchaseCommand.class);
         verify(purchase).execute(captor.capture());
         assertThat(captor.getValue()).isEqualTo(new RequestPurchaseCommand(
-                new EventId("evt-1"), new Quantity(2), new IdempotencyKey("key-1")));
+                new EventId("evt-1"), new Quantity(2), new IdempotencyKey("key-0123456789abcdef")));
     }
 
     @Test
@@ -90,7 +96,7 @@ class OrderControllerTest {
         when(purchase.execute(any()))
                 .thenReturn(Mono.just(new RequestPurchaseResult(ORDER, TicketStatus.SOLD, EXPIRES, true)));
 
-        post("key-1", BODY).expectStatus().isAccepted()
+        post("key-0123456789abcdef", BODY).expectStatus().isAccepted()
                 .expectBody()
                 .jsonPath("$.orderId").isEqualTo("ord-1")
                 .jsonPath("$.status").isEqualTo("SOLD")
@@ -111,6 +117,23 @@ class OrderControllerTest {
         post(key, BODY).expectStatus().isBadRequest()
                 .expectBody().jsonPath("$.status").isEqualTo(400);
         verifyNoInteractions(purchase);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"a", "1", "short-key", "123456789012345"})
+    void purchase_keyShorterThan16Chars_returns400WithoutEchoingIt(String key) {
+        post(key, BODY).expectStatus().isBadRequest()
+                .expectBody(String.class).value(body -> {
+                    assertThat(body).contains("invalid-idempotency-key").contains("at least 16 characters");
+                    assertThat(body).doesNotContain("\"" + key + "\"");
+                });
+        verifyNoInteractions(purchase);
+    }
+
+    @Test
+    void purchase_keyOfExactly16Chars_isAccepted() {
+        when(purchase.execute(any())).thenReturn(Mono.just(accepted()));
+        post("1234567890123456", BODY).expectStatus().isAccepted();
     }
 
     @Test
@@ -135,7 +158,7 @@ class OrderControllerTest {
             "{\"eventId\":\"  \",\"quantity\":1}",
             "{\"quantity\":1}"})
     void purchase_invalidBody_returns400WithViolations(String body) {
-        post("key-1", body).expectStatus().isBadRequest()
+        post("key-0123456789abcdef", body).expectStatus().isBadRequest()
                 .expectBody()
                 .jsonPath("$.type").isEqualTo("urn:ticketflow:problem:validation-error")
                 .jsonPath("$.violations.length()").isEqualTo(1);
@@ -145,12 +168,65 @@ class OrderControllerTest {
     @Test
     void purchase_quantityAtLimit10_isAccepted() {
         when(purchase.execute(any())).thenReturn(Mono.just(accepted()));
-        post("key-1", "{\"eventId\":\"evt-1\",\"quantity\":10}").expectStatus().isAccepted();
+        post("key-0123456789abcdef", "{\"eventId\":\"evt-1\",\"quantity\":10}").expectStatus().isAccepted();
+    }
+
+    @Test
+    void purchase_maxQuantityIsConfigurable_aboveItIs400AtItIsAccepted() {
+        when(purchase.execute(any())).thenReturn(Mono.just(accepted()));
+        var strict = WebTestClient.bindToController(new OrderController(purchase, status, 3))
+                .controllerAdvice(new ApiExceptionHandler()).validator(validator()).build();
+
+        strict.post().uri("/orders").contentType(MediaType.APPLICATION_JSON)
+                .header("Idempotency-Key", "key-0123456789abcdef")
+                .bodyValue("{\"eventId\":\"evt-1\",\"quantity\":4}").exchange()
+                .expectStatus().isBadRequest()
+                .expectBody()
+                .jsonPath("$.type").isEqualTo("urn:ticketflow:problem:validation-error")
+                .jsonPath("$.violations[0].field").isEqualTo("quantity")
+                .jsonPath("$.violations[0].message").isEqualTo("must be less than or equal to 3");
+        verifyNoInteractions(purchase);
+        strict.post().uri("/orders").contentType(MediaType.APPLICATION_JSON)
+                .header("Idempotency-Key", "key-0123456789abcdef")
+                .bodyValue("{\"eventId\":\"evt-1\",\"quantity\":3}").exchange().expectStatus().isAccepted();
+        var generous = WebTestClient.bindToController(new OrderController(purchase, status, 50))
+                .controllerAdvice(new ApiExceptionHandler()).validator(validator()).build();
+        generous.post().uri("/orders").contentType(MediaType.APPLICATION_JSON)
+                .header("Idempotency-Key", "key-0123456789abcdef")
+                .bodyValue("{\"eventId\":\"evt-1\",\"quantity\":50}").exchange().expectStatus().isAccepted();
+    }
+
+    @Test
+    void constructor_maxQuantityBelowOne_isRejected() {
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> new OrderController(purchase, status, 0))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("max-quantity");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"..%2F..%2Fetc%2Fpasswd", "a%20b", "%3Cscript%3Ealert(1)%3C%2Fscript%3E",
+            "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx", "caf%C3%A9", "a%00b"})
+    void get_malformedPathId_is404WithFixedTextAndNeverEchoesInputNorReachesTheUseCase(String id) {
+        client.get().uri("/orders/" + id).exchange().expectStatus().isNotFound()
+                .expectHeader().contentTypeCompatibleWith(MediaType.APPLICATION_PROBLEM_JSON)
+                .expectBody(String.class).value(body -> {
+                    assertThat(body).contains("urn:ticketflow:problem:not-found")
+                            .contains("The requested resource was not found");
+                    assertThat(body).doesNotContain("passwd").doesNotContain("script").doesNotContain("etc")
+                            .doesNotContain(id);
+                });
+        verifyNoInteractions(status);
+    }
+
+    @Test
+    void get_pathIdOf64AllowedChars_reachesTheUseCase() {
+        String id = "aZ09._-".repeat(9) + "a"; // 64 chars
+        when(status.execute(new OrderId(id))).thenReturn(Mono.just(view(TicketStatus.SOLD)));
+        client.get().uri("/orders/" + id).exchange().expectStatus().isOk();
     }
 
     @Test
     void purchase_malformedJson_returns400() {
-        post("key-1", "{oops").expectStatus().isBadRequest();
+        post("key-0123456789abcdef", "{oops").expectStatus().isBadRequest();
         verifyNoInteractions(purchase);
     }
 
@@ -159,7 +235,7 @@ class OrderControllerTest {
         when(purchase.execute(any())).thenReturn(Mono.error(
                 new InsufficientInventoryException(new EventId("evt-1"), new Quantity(2))));
 
-        post("key-1", BODY).expectStatus().isEqualTo(409)
+        post("key-0123456789abcdef", BODY).expectStatus().isEqualTo(409)
                 .expectBody()
                 .jsonPath("$.type").isEqualTo("urn:ticketflow:problem:insufficient-inventory")
                 .jsonPath("$.detail").isEqualTo("Not enough tickets are available for the requested quantity");
@@ -168,18 +244,18 @@ class OrderControllerTest {
     @Test
     void purchase_keyReusedWithDifferentPayload_returns409() {
         when(purchase.execute(any())).thenReturn(Mono.error(
-                new IdempotencyKeyReusedException(new IdempotencyKey("key-1"), ORDER)));
+                new IdempotencyKeyReusedException(new IdempotencyKey("key-0123456789abcdef"), ORDER)));
 
-        post("key-1", BODY).expectStatus().isEqualTo(409)
+        post("key-0123456789abcdef", BODY).expectStatus().isEqualTo(409)
                 .expectBody().jsonPath("$.type").isEqualTo("urn:ticketflow:problem:idempotency-key-reused");
     }
 
     @Test
     void purchase_releasedOrderOnReplay_returns409() {
         when(purchase.execute(any())).thenReturn(Mono.error(
-                new IdempotentOrderNotActiveException(new IdempotencyKey("key-1"), ORDER)));
+                new IdempotentOrderNotActiveException(new IdempotencyKey("key-0123456789abcdef"), ORDER)));
 
-        post("key-1", BODY).expectStatus().isEqualTo(409)
+        post("key-0123456789abcdef", BODY).expectStatus().isEqualTo(409)
                 .expectBody()
                 .jsonPath("$.type").isEqualTo("urn:ticketflow:problem:idempotent-order-not-active")
                 .jsonPath("$.detail").value(detail -> assertThat((String) detail).contains("new Idempotency-Key"));
@@ -190,7 +266,7 @@ class OrderControllerTest {
         when(purchase.execute(any())).thenReturn(Mono.error(
                 new OrderEnqueueFailedException(ORDER, true, new RuntimeException("sqs-internal-host:4566 down"))));
 
-        post("key-1", BODY).expectStatus().isEqualTo(503)
+        post("key-0123456789abcdef", BODY).expectStatus().isEqualTo(503)
                 .expectBody(String.class).value(body -> {
                     assertThat(body).contains("order-enqueue-failed").contains("new Idempotency-Key");
                     assertThat(body).doesNotContain("sqs-internal").doesNotContain("ord-1").doesNotContain("Exception");

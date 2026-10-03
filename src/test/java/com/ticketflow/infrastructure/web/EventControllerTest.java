@@ -69,6 +69,19 @@ class EventControllerTest {
         return body("\"Rock\"", "\"2030-01-01T20:00:00Z\"", "\"Arena\"", "100");
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"..%2F..%2Fetc%2Fpasswd", "a%20b", "%3Cb%3E",
+            "caf%C3%A9", "a%00b"})
+    void get_malformedPathId_is404WithFixedTextAndNeverEchoesInput(String id) {
+        client.get().uri("/events/" + id).exchange().expectStatus().isNotFound()
+                .expectBody(String.class).value(body -> {
+                    org.assertj.core.api.Assertions.assertThat(body).contains("not-found")
+                            .contains("The requested resource was not found")
+                            .doesNotContain("passwd").doesNotContain("<b>").doesNotContain(id);
+                });
+        Mockito.verifyNoInteractions(get);
+    }
+
     @Test
     void create_validBody_returns201WithLocationAndBody() {
         when(create.execute(any())).thenReturn(Mono.just(EVENT));

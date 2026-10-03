@@ -250,7 +250,7 @@ public class DynamoDbOrderRepository implements OrderRepository {
     }
 
     /** Throttling, transaction conflicts and 5xx-style service errors; never business or client errors. */
-    static boolean isTransient(Throwable error) {
+    public static boolean isTransient(Throwable error) {
         return switch (error) {
             case TransactionCanceledException canceled -> isTransientCancellation(canceled);
             case ProvisionedThroughputExceededException ignored -> true;

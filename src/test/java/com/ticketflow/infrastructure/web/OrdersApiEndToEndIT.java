@@ -92,6 +92,7 @@ class OrdersApiEndToEndIT {
         registry.add("ticketflow.sqs.consumer.enabled", () -> "true");
         registry.add("ticketflow.sqs.consumer.wait-time", () -> "1s");
         registry.add("ticketflow.expiration.enabled", () -> "false");
+        E2eContainers.generousRateLimits(registry);
         registry.add("ticketflow.availability.poll-interval", () -> "200ms");
     }
 

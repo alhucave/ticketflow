@@ -1,7 +1,13 @@
 package com.ticketflow.infrastructure.web;
 
+import com.ticketflow.infrastructure.config.RateLimitConfig;
 import com.ticketflow.infrastructure.web.error.AdminAccessDeniedException;
+import com.ticketflow.infrastructure.web.error.RateLimitExceededException;
+import com.ticketflow.infrastructure.web.ratelimit.ClientAddressResolver;
+import com.ticketflow.infrastructure.web.ratelimit.ClientRateLimiter;
+import java.time.Duration;
 import java.util.List;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
@@ -19,6 +25,11 @@ import reactor.core.publisher.Mono;
  * handling, so an unauthorised caller learns nothing about the event or the payload. To protect
  * another admin route, add its pattern to {@link #ADMIN_ROUTES}. Failures are rendered by
  * {@code ProblemWebExceptionHandler} as {@code application/problem+json}.
+ *
+ * <p>Brute-force protection: every wrong or missing key charges a token of the client's failure
+ * budget ({@code ticketflow.rate-limit.admin-failure-*}); once it is spent the client gets {@code 429}
+ * with {@code Retry-After} WITHOUT the key being checked, so even the right key is refused until a
+ * token refills. The disabled case (403, no key configured) is not a guess and is not charged.
  */
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE + 20)
@@ -31,9 +42,14 @@ public class AdminKeyWebFilter implements WebFilter {
             PathPatternParser.defaultInstance.parse("/events/{id}/complimentary"));
 
     private final AdminKeyGuard guard;
+    private final ClientAddressResolver clients;
+    private final ClientRateLimiter failures;
 
-    public AdminKeyWebFilter(@Value("${ticketflow.admin.api-key:}") String apiKey) {
+    public AdminKeyWebFilter(@Value("${ticketflow.admin.api-key:}") String apiKey, ClientAddressResolver clients,
+                             @Qualifier(RateLimitConfig.ADMIN_FAILURE_LIMITER) ClientRateLimiter failures) {
         this.guard = new AdminKeyGuard(apiKey);
+        this.clients = clients;
+        this.failures = failures;
     }
 
     @Override
@@ -42,11 +58,24 @@ public class AdminKeyWebFilter implements WebFilter {
         if (ADMIN_ROUTES.stream().noneMatch(route -> route.matches(path))) {
             return chain.filter(exchange);
         }
+        String client = clients.resolve(exchange);
+        Duration lockedOut = failures.blockedFor(client);
+        if (!lockedOut.isZero()) {
+            return Mono.error(new RateLimitExceededException(lockedOut));
+        }
         try {
             guard.check(exchange.getRequest().getHeaders().getFirst(HEADER));
         } catch (AdminAccessDeniedException denied) {
+            if (!denied.isDisabled()) {
+                failures.penalize(client);
+            }
             return Mono.error(denied);
         }
         return chain.filter(exchange);
+    }
+
+    @Override
+    public String toString() {
+        return "AdminKeyWebFilter[" + guard + "]";
     }
 }

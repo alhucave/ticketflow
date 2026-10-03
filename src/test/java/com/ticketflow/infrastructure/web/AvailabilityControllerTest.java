@@ -56,6 +56,18 @@ class AvailabilityControllerTest {
                 .jsonPath("$.capacity").isEqualTo(10);
     }
 
+    @org.junit.jupiter.params.ParameterizedTest
+    @org.junit.jupiter.params.provider.ValueSource(strings = {"..%2Fsecret", "a%20b", "%3Cb%3E"})
+    void getAndStream_malformedPathId_are404WithFixedTextAndNeverEchoInput(String id) {
+        for (String path : new String[] {"/events/" + id + "/availability", "/events/" + id + "/availability/stream"}) {
+            client.get().uri(path).exchange().expectStatus().isNotFound()
+                    .expectBody(String.class).value(body -> assertThat(body)
+                            .contains("The requested resource was not found")
+                            .doesNotContain("secret").doesNotContain("<b>").doesNotContain(id));
+        }
+        org.mockito.Mockito.verifyNoInteractions(useCase);
+    }
+
     @Test
     void get_unknownEvent_returns404Problem() {
         when(useCase.execute(any())).thenReturn(Mono.error(new EventNotFoundException(ID)));

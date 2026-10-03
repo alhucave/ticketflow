@@ -136,6 +136,79 @@ class RequestPurchaseUseCaseTest {
     }
 
     @Test
+    void execute_replayOfStillReservedOrder_republishesItsMessageOnce() {
+        when(placement.placeReservation(any(), any())).thenReturn(Mono.error(new OrderAlreadyExistsException(ORDER_ID)));
+        var stranded = existing(EVENT, 3, TicketStatus.RESERVED);
+        when(orders.findById(ORDER_ID)).thenReturn(Mono.just(stranded));
+        var published = new java.util.concurrent.atomic.AtomicInteger();
+        when(queue.publish(any())).thenReturn(Mono.fromRunnable(published::incrementAndGet));
+
+        StepVerifier.create(useCase.execute(COMMAND))
+                .assertNext(result -> {
+                    assertThat(result.orderId()).isEqualTo(ORDER_ID);
+                    assertThat(result.status()).isEqualTo(TicketStatus.RESERVED);
+                    assertThat(result.replayed()).isTrue();
+                })
+                .verifyComplete();
+
+        verify(queue).publish(stranded);
+        assertThat(published).hasValue(1);
+        verify(placement, never()).releaseReservation(any(), any(), any(), any(), any());
+    }
+
+    @Test
+    void execute_replayOfReservedOrderWhenRepublishFails_stillAnswersAndReleasesNothingAndLogsNoInternals() {
+        var logs = new ch.qos.logback.core.read.ListAppender<ch.qos.logback.classic.spi.ILoggingEvent>();
+        var logger = (ch.qos.logback.classic.Logger) org.slf4j.LoggerFactory.getLogger(RequestPurchaseUseCase.class);
+        logs.start();
+        logger.addAppender(logs);
+        try {
+            when(placement.placeReservation(any(), any()))
+                    .thenReturn(Mono.error(new OrderAlreadyExistsException(ORDER_ID)));
+            when(orders.findById(ORDER_ID)).thenReturn(Mono.just(existing(EVENT, 3, TicketStatus.RESERVED)));
+            when(queue.publish(any())).thenReturn(Mono.error(new IllegalStateException("sqs-internal-host:4566")));
+
+            StepVerifier.create(useCase.execute(COMMAND))
+                    .assertNext(result -> {
+                        assertThat(result.status()).isEqualTo(TicketStatus.RESERVED);
+                        assertThat(result.replayed()).isTrue();
+                    })
+                    .verifyComplete();
+
+            verify(placement, never()).releaseReservation(any(), any(), any(), any(), any());
+            assertThat(logs.list).anySatisfy(line -> assertThat(line.getFormattedMessage())
+                    .contains("could not republish").contains("IllegalStateException"));
+            assertThat(logs.list).allSatisfy(line -> {
+                assertThat(line.getFormattedMessage()).doesNotContain("sqs-internal");
+                assertThat(line.getThrowableProxy()).isNull();
+            });
+        } finally {
+            logger.detachAppender(logs);
+        }
+    }
+
+    @Test
+    void execute_replayOfReservedOrderWhenPublishThrowsSynchronously_isContainedToo() {
+        when(placement.placeReservation(any(), any())).thenReturn(Mono.error(new OrderAlreadyExistsException(ORDER_ID)));
+        when(orders.findById(ORDER_ID)).thenReturn(Mono.just(existing(EVENT, 3, TicketStatus.RESERVED)));
+        when(queue.publish(any())).thenThrow(new IllegalStateException("boom"));
+
+        StepVerifier.create(useCase.execute(COMMAND)).assertNext(r -> assertThat(r.replayed()).isTrue())
+                .verifyComplete();
+    }
+
+    @Test
+    void execute_replayOfOrderPastReserved_neverRepublishes() {
+        when(placement.placeReservation(any(), any())).thenReturn(Mono.error(new OrderAlreadyExistsException(ORDER_ID)));
+        for (var status : new TicketStatus[] {TicketStatus.PENDING_CONFIRMATION, TicketStatus.SOLD}) {
+            when(orders.findById(ORDER_ID)).thenReturn(Mono.just(existing(EVENT, 3, status)));
+            StepVerifier.create(useCase.execute(COMMAND)).assertNext(r -> assertThat(r.replayed()).isTrue())
+                    .verifyComplete();
+        }
+        verifyNoInteractions(queue);
+    }
+
+    @Test
     void execute_orderAlreadyExistsButReleased_failsWithNotActiveAndDoesNotPublish() {
         when(placement.placeReservation(any(), any())).thenReturn(Mono.error(new OrderAlreadyExistsException(ORDER_ID)));
         when(orders.findById(ORDER_ID)).thenReturn(Mono.just(existing(EVENT, 3, TicketStatus.AVAILABLE)));

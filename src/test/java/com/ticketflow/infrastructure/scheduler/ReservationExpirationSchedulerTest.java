@@ -208,4 +208,44 @@ class ReservationExpirationSchedulerTest {
         real.stop();
         assertThat(real.isRunning()).isFalse();
     }
+
+    @Test
+    void restart_duringSweep_oldScheduleEndsAfterItsSweepAndOnlyTheNewOneRuns() {
+        // Long shutdown timeout so the old loop is never disposed by the drain timeout: only the generation
+        // token can stop it.
+        var patient = new ReservationExpirationScheduler(useCase,
+                new ExpirationProperties(true, INTERVAL, INITIAL, 4, 500, Duration.ofHours(1)), timer);
+        var firstSweep = reactor.core.publisher.Sinks.<Summary>one();
+        var sweeps = new AtomicInteger();
+        when(useCase.execute()).thenAnswer(i -> Mono.defer(() ->
+                sweeps.incrementAndGet() == 1 ? firstSweep.asMono() : Mono.just(new Summary(0, 0, 0, 0))));
+        try {
+            patient.start();
+            timer.advanceTimeBy(INITIAL); // sweep 1 starts and stays in progress
+            assertThat(sweeps).hasValue(1);
+
+            patient.stop();   // draining the sweep
+            patient.start();  // new generation while the old sweep is still running
+            firstSweep.tryEmitValue(new Summary(1, 1, 0, 0)); // the old sweep finishes
+            timer.advanceTimeBy(INITIAL.plus(INTERVAL.multipliedBy(2)));
+
+            // New schedule: sweeps at +10s, +70s, +130s = 3, plus the old sweep = 4. A surviving old loop
+            // would have added its own sweeps at +60s and +120s.
+            assertThat(sweeps).hasValue(4);
+        } finally {
+            patient.stop();
+        }
+    }
+
+    @Test
+    void restart_duringInitialDelayOfAStoppedGeneration_neverDoublesTheSchedule() {
+        sweepsImmediately();
+
+        scheduler.start();
+        scheduler.stop();
+        scheduler.start();
+        timer.advanceTimeBy(INITIAL.plus(INTERVAL));
+
+        assertThat(runs).hasValue(2);
+    }
 }

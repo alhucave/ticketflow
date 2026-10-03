@@ -1,6 +1,5 @@
 package com.ticketflow.infrastructure.web;
 
-import com.ticketflow.domain.model.EventId;
 import com.ticketflow.usecase.CreateEventUseCase;
 import com.ticketflow.usecase.GetEventUseCase;
 import com.ticketflow.usecase.ListEventsUseCase;
@@ -49,7 +48,7 @@ public class EventController {
 
     @GetMapping("/{id}")
     public Mono<EventDetailsResponse> get(@PathVariable String id) {
-        return getEvent.execute(new EventId(id)).map(EventMapper::toResponse);
+        return getEvent.execute(PathIds.eventId(id)).map(EventMapper::toResponse);
     }
 
     @GetMapping

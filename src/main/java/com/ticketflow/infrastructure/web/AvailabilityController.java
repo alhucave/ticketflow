@@ -56,7 +56,7 @@ public class AvailabilityController {
 
     @GetMapping
     public Mono<AvailabilityResponse> get(@PathVariable String id) {
-        return availability.execute(new EventId(id)).map(OrderMapper::toResponse);
+        return availability.execute(PathIds.eventId(id)).map(OrderMapper::toResponse);
     }
 
     /**
@@ -67,7 +67,7 @@ public class AvailabilityController {
      */
     @GetMapping("/stream")
     public Mono<ResponseEntity<Flux<AvailabilityResponse>>> stream(@PathVariable String id) {
-        EventId eventId = new EventId(id);
+        EventId eventId = PathIds.eventId(id);
         return availability.execute(eventId)
                 .map(first -> ResponseEntity.ok()
                         .contentType(MediaType.TEXT_EVENT_STREAM)

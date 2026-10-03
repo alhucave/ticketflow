@@ -6,6 +6,7 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.ticketflow.infrastructure.config.CorrelationConfig;
+import com.ticketflow.infrastructure.config.RateLimitConfig;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -27,7 +28,7 @@ import reactor.core.scheduler.Schedulers;
 /** The MDC must follow each request across threads and never leak to another request or thread. */
 @WebFluxTest(controllers = ErrorProbeController.class)
 @Import({ApiExceptionHandler.class, ProblemWebExceptionHandler.class, CorrelationIdWebFilter.class,
-        CorrelationConfig.class})
+        CorrelationConfig.class, RateLimitConfig.class})
 class CorrelationMdcIsolationTest {
 
     private static final int REQUESTS = 120;
