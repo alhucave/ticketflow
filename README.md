@@ -27,6 +27,7 @@ Plataforma reactiva de procesamiento de eventos de ticketing (Java 25, Spring Bo
 Requisitos: **Docker** con Compose (en macOS puede ser Colima; vale el binario `docker-compose` o el plugin `docker compose`, los comandos de este documento usan `docker-compose`). **JDK 25 solo hace falta para compilar y probar en local** (`./gradlew`, `./init.sh`): para ejecutar la aplicación basta Docker, porque la imagen se construye dentro de Docker.
 
 ```bash
+# El repositorio es privado: hace falta ser colaborador y haber iniciado sesión en GitHub (p. ej. `gh auth login`)
 git clone https://github.com/alhucave/ticketflow.git && cd ticketflow
 
 export ADMIN_API_KEY=$(openssl rand -hex 32)   # clave de administración solo para esta sesión (ver «Seguridad»)
@@ -479,7 +480,7 @@ Modelo de amenazas, escaneos, endurecimiento de contenedores y limitaciones cono
 | `.github/workflows/release.yml` | push de un tag `v*` | Construye la imagen y la publica en `ghcr.io/alhucave/ticketflow` (tags semver `x.y.z`, `x.y` y `latest`) con `GITHUB_TOKEN` (`packages: write` solo en ese job) |
 
 - Los workflows usan permisos mínimos (`contents: read`) y acciones fijadas por SHA de commit.
-- **Protección de la rama `main`**: el check `verify` es obligatorio y la rama debe estar al día antes de fusionar; no se permiten force-push ni borrado. Todo cambio llega por PR (`Closes #<issue>`) con CI en verde.
+- **Protección de la rama `main`**: se configuró con el check `verify` obligatorio, la rama al día antes de fusionar y sin force-push ni borrado, cuando el repositorio era público. **Desde que el repositorio es privado en un plan GitHub Free esa protección ya no se puede aplicar** (GitHub exige el plan Pro/Team o un repositorio público): `verify` y los escaneos se siguen ejecutando en cada PR, pero **no bloquean la fusión**. «Todo cambio por PR (`Closes #<issue>`) con CI en verde» es hoy una **convención**, no una regla impuesta. Para recuperarla: plan Pro/Team o volver a hacer público el repositorio, y reactivar la regla (check `verify` obligatorio, rama al día, sin force-push ni borrado).
 - **Dependabot** (`.github/dependabot.yml`): actualizaciones semanales agrupadas de Gradle (con su lockfile), GitHub Actions e imagen base del `Dockerfile` (fijada también por digest); cada PR pasa `verify` y los escaneos.
 - Detalle de los escaneos y cómo ejecutarlos en local: [`docs/security.md`](docs/security.md#cadena-de-suministro).
 

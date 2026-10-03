@@ -10,6 +10,8 @@
 
 Se confirmará la recepción y se informará del avance en ese mismo hilo privado. No incluya credenciales reales en el reporte.
 
+> **Mientras el repositorio sea privado** solo lo ven los colaboradores invitados: comunique cualquier hallazgo directamente a la persona propietaria. El reporte privado de GitHub descrito arriba es el canal previsto cuando el repositorio sea público.
+
 ## Alcance
 
 Es un proyecto de demostración/prueba técnica sin despliegue en producción (el diseño de un despliegue en AWS, no ejecutado, está en [`docs/aws.md`](docs/aws.md#5-seguridad-en-la-nube)). Soporta únicamente la rama `main`. El modelo de amenazas, los controles y las limitaciones conocidas están en [`docs/security.md`](docs/security.md).
