@@ -448,7 +448,7 @@ export DOCKER_HOST=unix://$HOME/.colima/default/docker.sock
 export TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock
 ```
 
-**Cifras actuales** (`INCLUDE_INTEGRATION=true ./init.sh` sobre este commit): **929 pruebas, 0 fallos**; cobertura de líneas **99,54 %** (2.142 de 2.152; ramas 95,89 %), con el mínimo exigido en 90 %. Sin integración (`./init.sh`) se ejecutan menos pruebas: ver `docs/verification.md`.
+**Cifras actuales** (`INCLUDE_INTEGRATION=true ./init.sh` sobre este commit): **929 pruebas, 0 fallos**; cobertura de líneas **99,54 %** (2.142 de 2.152; ramas 95,89 %), con el mínimo exigido en 90 %. Sin integración (`./init.sh`, sin Docker): **768 pruebas, 0 fallos**, cobertura de líneas **99,40 %** (2.139 de 2.152).
 
 El informe de cobertura HTML queda en `build/reports/jacoco/test/html/index.html` (y el XML en `build/reports/jacoco/test/jacocoTestReport.xml`); el de pruebas, en `build/reports/tests/test/index.html`. En CI se suben como artefacto `reports`. Detalle de la suite de concurrencia, la reconciliación y cómo ejecutarla sola: [`docs/verification.md`](docs/verification.md).
 
