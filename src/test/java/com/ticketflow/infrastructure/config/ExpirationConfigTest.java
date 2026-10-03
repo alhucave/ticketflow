@@ -30,7 +30,8 @@ class ExpirationConfigTest {
                 .withBean(EventRepository.class, () -> mock(EventRepository.class))
                 .withBean(InventoryRepository.class, () -> mock(InventoryRepository.class))
                 .withBean(OrderFulfillmentRepository.class, () -> mock(OrderFulfillmentRepository.class))
-                .withBean(OrderQueuePublisher.class, () -> mock(OrderQueuePublisher.class));
+                .withBean(OrderQueuePublisher.class, () -> mock(OrderQueuePublisher.class))
+                .withBean(com.ticketflow.usecase.BusinessMetrics.class, () -> com.ticketflow.usecase.BusinessMetrics.NOOP);
     }
 
     @Test

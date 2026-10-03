@@ -1,9 +1,12 @@
 package com.ticketflow.infrastructure.config;
 
 import com.ticketflow.infrastructure.messaging.SqsOrderConsumer;
+import com.ticketflow.infrastructure.observability.OperationalMetrics;
 import com.ticketflow.infrastructure.messaging.SqsQueueUrlResolver;
 import com.ticketflow.usecase.ProcessOrderUseCase;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -18,8 +21,10 @@ public class SqsConsumerConfig {
 
     @Bean
     SqsOrderConsumer sqsOrderConsumer(SqsAsyncClient client, SqsProperties sqs,
-                                      SqsConsumerProperties consumer, ProcessOrderUseCase useCase) {
-        return new SqsOrderConsumer(client, queueUrl(client, sqs), useCase, consumer);
+                                      SqsConsumerProperties consumer, ProcessOrderUseCase useCase,
+                                      ObjectProvider<OperationalMetrics> metrics) {
+        return new SqsOrderConsumer(client, queueUrl(client, sqs), useCase, consumer,
+                metrics.getIfAvailable(() -> OperationalMetrics.NOOP));
     }
 
     static Mono<String> queueUrl(SqsAsyncClient client, SqsProperties sqs) {

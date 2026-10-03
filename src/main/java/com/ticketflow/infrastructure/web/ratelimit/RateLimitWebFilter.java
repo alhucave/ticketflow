@@ -1,5 +1,6 @@
 package com.ticketflow.infrastructure.web.ratelimit;
 
+import com.ticketflow.infrastructure.observability.OperationalMetrics;
 import com.ticketflow.infrastructure.web.error.RateLimitExceededException;
 import java.time.Duration;
 import java.util.List;
@@ -38,10 +39,16 @@ public class RateLimitWebFilter implements WebFilter {
 
     private final ClientRateLimiter limiter;
     private final ClientAddressResolver clients;
+    private final OperationalMetrics metrics;
 
     public RateLimitWebFilter(ClientRateLimiter limiter, ClientAddressResolver clients) {
+        this(limiter, clients, OperationalMetrics.NOOP);
+    }
+
+    public RateLimitWebFilter(ClientRateLimiter limiter, ClientAddressResolver clients, OperationalMetrics metrics) {
         this.limiter = limiter;
         this.clients = clients;
+        this.metrics = metrics;
     }
 
     @Override
@@ -50,7 +57,11 @@ public class RateLimitWebFilter implements WebFilter {
             return chain.filter(exchange);
         }
         Duration wait = limiter.tryAcquire(clients.resolve(exchange));
-        return wait.isZero() ? chain.filter(exchange) : Mono.error(new RateLimitExceededException(wait));
+        if (wait.isZero()) {
+            return chain.filter(exchange);
+        }
+        metrics.rateLimitRejected(OperationalMetrics.Limiter.WRITE);
+        return Mono.error(new RateLimitExceededException(wait));
     }
 
     private static Route route(HttpMethod method, String pattern) {

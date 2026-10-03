@@ -13,6 +13,7 @@ import com.ticketflow.domain.exception.OrderEnqueueFailedException;
 import com.ticketflow.domain.exception.OrderNotFoundException;
 import com.ticketflow.domain.exception.OrderStatusConflictException;
 import com.ticketflow.domain.exception.ReservationExpiredException;
+import com.ticketflow.infrastructure.observability.OperationalMetrics;
 import com.ticketflow.infrastructure.web.InvalidIdempotencyKeyException;
 import com.ticketflow.infrastructure.web.InvalidPathIdException;
 import com.ticketflow.infrastructure.web.InvalidRequestFieldException;
@@ -24,6 +25,8 @@ import java.util.Set;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
@@ -70,10 +73,25 @@ public class ApiExceptionHandler {
     /** Suggested wait when a dependency (DynamoDB, SQS) is throttling or unreachable. */
     private static final Duration UNAVAILABLE_RETRY_AFTER = Duration.ofSeconds(5);
 
+    private final OperationalMetrics metrics;
+
+    public ApiExceptionHandler() {
+        this.metrics = OperationalMetrics.NOOP;
+    }
+
+    @Autowired
+    public ApiExceptionHandler(ObjectProvider<OperationalMetrics> metrics) {
+        this(metrics.getIfAvailable(() -> OperationalMetrics.NOOP));
+    }
+
+    public ApiExceptionHandler(OperationalMetrics metrics) {
+        this.metrics = metrics;
+    }
+
     /** Catch-all for anything raised inside a controller: mapped when known, otherwise a generic 500. */
     @ExceptionHandler(Throwable.class)
     public ResponseEntity<ProblemDetail> handle(Throwable ex, ServerWebExchange exchange) {
-        return translate(ex, CorrelationId.of(exchange));
+        return translate(ex, CorrelationId.of(exchange), metrics);
     }
 
     /** A problem plus the response headers it needs (for example {@code Allow}, {@code Retry-After}). */
@@ -84,7 +102,11 @@ public class ApiExceptionHandler {
     }
 
     static ResponseEntity<ProblemDetail> translate(Throwable ex, String correlationId) {
-        Mapped mapped = map(ex, correlationId);
+        return translate(ex, correlationId, OperationalMetrics.NOOP);
+    }
+
+    static ResponseEntity<ProblemDetail> translate(Throwable ex, String correlationId, OperationalMetrics metrics) {
+        Mapped mapped = map(ex, correlationId, metrics);
         ProblemDetail problem = mapped.problem();
         problem.setInstance(URI.create(INSTANCE_PREFIX + correlationId));
         problem.setProperty(CorrelationId.KEY, correlationId);
@@ -96,7 +118,7 @@ public class ApiExceptionHandler {
         return respond(problem, mapped.headers());
     }
 
-    private static Mapped map(Throwable ex, String correlationId) {
+    private static Mapped map(Throwable ex, String correlationId, OperationalMetrics metrics) {
         return switch (ex) {
             case WebExchangeBindException bind -> validation(bind);
             /* Malformed JSON, wrong types or unparseable values (for example a bad ISO-8601 instant). */
@@ -153,7 +175,7 @@ public class ApiExceptionHandler {
             case ErrorResponse framework -> framework(framework, ex, correlationId);
             /* After every business mapping: only a failure that is none of them can be an outage. */
             case Throwable transientFailure when TransientFailures.isTransient(transientFailure) ->
-                    unavailable(transientFailure, correlationId);
+                    unavailable(transientFailure, correlationId, metrics);
             default -> internal(HttpStatus.INTERNAL_SERVER_ERROR, ex, correlationId);
         };
     }
@@ -199,7 +221,8 @@ public class ApiExceptionHandler {
      * {@code 503} + {@code Retry-After}. The request may have had no effect or only part of one, but every
      * write path is idempotent or compensating, so retrying is safe. The cause is logged by class only.
      */
-    private static Mapped unavailable(Throwable ex, String correlationId) {
+    private static Mapped unavailable(Throwable ex, String correlationId, OperationalMetrics metrics) {
+        metrics.dependencyUnavailable();
         withCorrelationId(correlationId, () -> LOG.warn("Dependency unavailable ({}); answering 503",
                 ex.getClass().getSimpleName()));
         Mapped mapped = new Mapped(problem(HttpStatus.SERVICE_UNAVAILABLE, "service-unavailable",

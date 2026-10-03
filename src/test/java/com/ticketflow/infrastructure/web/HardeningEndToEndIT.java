@@ -335,7 +335,8 @@ class HardeningEndToEndIT {
         all.add(client.post().uri("/events/{id}/complimentary", eventId).contentType(MediaType.APPLICATION_JSON)
                 .header("Idempotency-Key", newKey()).bodyValue("{\"quantity\":1}").exchange()
                 .expectStatus().isUnauthorized().returnResult(String.class).getResponseHeaders());
-        all.add(client.get().uri("/actuator/health").exchange().expectStatus().isOk()
+        // Actuator lives on the management port only: on the public port it is just another unknown route.
+        all.add(client.get().uri("/actuator/health").exchange().expectStatus().isNotFound()
                 .returnResult(String.class).getResponseHeaders());
         all.forEach(HardeningEndToEndIT::assertSecurityHeaders);
     }

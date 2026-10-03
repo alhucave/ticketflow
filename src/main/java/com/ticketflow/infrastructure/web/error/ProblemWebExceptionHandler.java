@@ -1,6 +1,9 @@
 package com.ticketflow.infrastructure.web.error;
 
+import com.ticketflow.infrastructure.observability.OperationalMetrics;
 import java.util.List;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.http.ResponseEntity;
@@ -24,8 +27,15 @@ import reactor.core.publisher.Mono;
 public class ProblemWebExceptionHandler implements WebExceptionHandler {
 
     private final ServerResponse.Context context;
+    private final OperationalMetrics metrics;
 
-    public ProblemWebExceptionHandler(ServerCodecConfigurer codecs) {
+    @Autowired
+    public ProblemWebExceptionHandler(ServerCodecConfigurer codecs, ObjectProvider<OperationalMetrics> metrics) {
+        this(codecs, metrics.getIfAvailable(() -> OperationalMetrics.NOOP));
+    }
+
+    public ProblemWebExceptionHandler(ServerCodecConfigurer codecs, OperationalMetrics metrics) {
+        this.metrics = metrics;
         List<HttpMessageWriter<?>> writers = codecs.getWriters();
         this.context = new ServerResponse.Context() {
             @Override
@@ -46,7 +56,7 @@ public class ProblemWebExceptionHandler implements WebExceptionHandler {
             // Too late to change the status (for example an SSE stream already started): let the server abort.
             return Mono.error(ex);
         }
-        ResponseEntity<?> entity = ApiExceptionHandler.translate(ex, CorrelationId.of(exchange));
+        ResponseEntity<?> entity = ApiExceptionHandler.translate(ex, CorrelationId.of(exchange), metrics);
         return ServerResponse.status(entity.getStatusCode())
                 .headers(headers -> headers.addAll(entity.getHeaders()))
                 .bodyValue(entity.getBody())

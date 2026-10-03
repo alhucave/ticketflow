@@ -28,12 +28,14 @@ docker-compose down -v      # detiene y elimina contenedores y volúmenes
 
 | Servicio | Puerto | Notas |
 |----------|--------|-------|
-| app | 127.0.0.1:8080 | `GET /actuator/health` |
+| app | 127.0.0.1:8080 | API pública (`/events`, `/orders`...). **No** sirve `/actuator/**` (responde `404`) |
+| app (gestión) | 127.0.0.1:8081 | Actuator: `GET /actuator/health/liveness`, `/actuator/health/readiness`, `/actuator/health`, `/actuator/info` y `/actuator/prometheus`. Solo en loopback del host |
 | dynamodb | 127.0.0.1:8000 | `amazon/dynamodb-local:3.3.1`, en memoria |
 | localstack | 127.0.0.1:4566 | `localstack/localstack:4.14.0`, solo SQS |
 
 - Al arrancar, `docker/localstack/init-queues.sh` crea la cola `orders` y su DLQ `orders-dlq` (redrive policy con `maxReceiveCount=3`). El healthcheck de LocalStack solo pasa cuando el script terminó, y `app` espera a que `dynamodb` y `localstack` estén healthy.
 - Verificar colas: `docker-compose exec localstack awslocal sqs list-queues`.
+- **Salud y observabilidad**: el `HEALTHCHECK` de la imagen consulta el *liveness* en el puerto de gestión (`8081`, dentro del contenedor); `docker inspect --format '{{.State.Health.Status}}' $(docker-compose ps -q app)` debe dar `healthy`. Para comprobar dependencias: `curl -s http://127.0.0.1:8081/actuator/health/readiness` (`{"status":"UP"}` solo si DynamoDB y la cola responden). Métricas: `curl -s http://127.0.0.1:8081/actuator/prometheus | grep '^ticketflow_'`. Los logs de `app` salen en **JSON** (una línea por objeto, con `correlationId`): `docker-compose logs app`. Todo en [`docs/observability.md`](docs/observability.md).
 - Las imágenes tienen tag fijo (sin `:latest`). LocalStack se fija en `4.14.0` porque las versiones `2026.x` exigen `LOCALSTACK_AUTH_TOKEN`.
 - **Endurecido**: puertos solo en `127.0.0.1` (DynamoDB Local y LocalStack no tienen autenticación), sistema de ficheros de solo lectura (`tmpfs` para `/tmp`), `cap_drop: ALL`, `no-new-privileges`, límites de memoria/CPU/pids y `restart`. Detalle y excepciones en [`docs/security.md`](docs/security.md#endurecimiento-de-contenedores). La imagen no tiene shell: para depurar use `docker-compose logs`/`docker inspect`.
 - Solo se usan credenciales dummy (`test`/`test`). `.env` está en `.gitignore`; nunca commitees secretos.
@@ -157,6 +159,15 @@ Las cabeceras HTTP las limita Netty (8 KB por defecto).
 
 `SqsOrderConsumer` y `ReservationExpirationScheduler` usan un **token de generación** por arranque: un `stop()` seguido de `start()` mientras el ciclo anterior aún drena ya no deja dos bucles vivos (antes el viejo seguía repitiendo mientras `running` volvía a ser `true`).
 
+## Observabilidad
+
+Métricas de negocio y de infraestructura (Micrometer, prefijo `ticketflow.`), logs JSON con correlation id y sondas de *liveness*/*readiness*. Catálogo de métricas, alertas sugeridas, cómo seguir una compra por `correlationId` en los logs y fragmento de Prometheus local: [`docs/observability.md`](docs/observability.md). Resumen:
+
+- **Actuator en su propio puerto** (`management.server.port`, por defecto `8081`, solo `127.0.0.1` fuera del contenedor): expone únicamente `health` (grupos `liveness` y `readiness`), `info` y `prometheus`. El puerto público `8080` **no** sirve `/actuator/**` (`404`). `health` muestra solo `UP`/`DOWN`, sin detalles.
+- **Liveness** nunca depende de sistemas externos; **readiness** incluye DynamoDB (tabla `orders`) y SQS (cola resoluble), con timeout corto y caché breve (`ticketflow.observability.health.*`).
+- **Logs**: con `LOGGING_STRUCTURED_FORMAT_CONSOLE=ecs` (la imagen y `docker-compose.yml` lo activan) cada línea es un objeto JSON (formato ECS de Spring Boot) con `correlationId`, `service.name`/`version`/`environment` y la traza de las excepciones. Sin esa variable (ejecución local con `./gradlew bootRun`) se usa el patrón legible `[correlationId]`. El consumer SQS restaura el `correlationId` del atributo del mensaje, así que una compra se sigue API -> cola -> consumer.
+- **Ejecución local fuera de Docker**: el puerto de gestión escucha en `127.0.0.1:8081` (`MANAGEMENT_SERVER_ADDRESS`, `MANAGEMENT_SERVER_PORT` para cambiarlos). Los *gauges* de profundidad de cola requieren `TICKETFLOW_OBSERVABILITY_QUEUE_METRICS_ENABLED=true` (docker-compose lo activa).
+
 ## Endpoints
 
 API reactiva (Spring WebFlux, `Mono`/`Flux`) de eventos, compras asíncronas y disponibilidad. Con `docker-compose up --build` la app escucha en `http://localhost:8080`.
@@ -272,7 +283,7 @@ Todo error (de dominio, de validación, de Spring, o inesperado) usa **una sola 
 
 Por qué `409` y no `503` para la contención de inventario: la petición chocó con un cambio concurrente y no se aplicó; `503` se reserva para "el servicio no puede aceptar trabajo" (cola caída). **Reintentos**: la capa web no reintenta nada (no puede saber si una petición es repetible); los reintentos con `Retry.backoff` viven en los adaptadores y solo para errores transitorios (p. ej. el publisher SQS), y al cliente se le indica cuándo reintentar con `Retry-After`.
 
-**Correlation id.** Cada petición lleva un `X-Correlation-Id`: se acepta el del cliente solo si tiene 1-64 caracteres `[A-Za-z0-9._-]`; si falta o es inseguro (vacío, largo, con saltos de línea u otros caracteres) se ignora y se genera un UUID (nunca se devuelve ni se registra el valor inseguro). Se devuelve en la cabecera `X-Correlation-Id` de **todas** las respuestas, en la propiedad `correlationId` de cada error, aparece en cada línea de log de la petición (`%X{correlationId}` en el patrón de `application.yml`; JSON estructurado llegará con F-024) y viaja como atributo `correlationId` del mensaje SQS en `POST /orders`.
+**Correlation id.** Cada petición lleva un `X-Correlation-Id`: se acepta el del cliente solo si tiene 1-64 caracteres `[A-Za-z0-9._-]`; si falta o es inseguro (vacío, largo, con saltos de línea u otros caracteres) se ignora y se genera un UUID (nunca se devuelve ni se registra el valor inseguro). Se devuelve en la cabecera `X-Correlation-Id` de **todas** las respuestas, en la propiedad `correlationId` de cada error, aparece en cada línea de log de la petición (campo `correlationId` del JSON estructurado, o `%X{correlationId}` en el patrón legible de `application.yml`) y viaja como atributo `correlationId` del mensaje SQS en `POST /orders`.
 
 ```bash
 # Crear un evento (fecha futura) -> 201 + Location

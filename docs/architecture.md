@@ -78,6 +78,15 @@ Detalle y propiedades en el README («Seguridad»). Resumen de diseño:
 - **Errores transitorios**: `ApiExceptionHandler` mapea (después de todos los errores de negocio) throttling/5xx de AWS, `SdkClientException`, `TimeoutException`, transacciones en conflicto y `RetryExhaustedException` a `503` + `Retry-After` con texto fijo (`TransientFailures`).
 - **Ciclo de vida**: consumer y scheduler capturan un token de generación por arranque en su predicado de repetición.
 
+## Observabilidad (F-024)
+
+Detalle, catálogo de métricas y alertas en [`docs/observability.md`](observability.md). Resumen de diseño:
+
+- **Puertos de métricas**: `usecase.BusinessMetrics` (órdenes colocadas/vendidas/liberadas, rechazos, conflictos) y `infrastructure.observability.OperationalMetrics` (consumer, publisher, barrido, rate limit, 503). Son interfaces sin framework con implementación `NOOP` por defecto (los casos de uso y adaptadores se construyen sin registro en los tests); `MicrometerMetrics` implementa ambas con `MeterRegistry`, registra todas las series al arrancar y solo admite etiquetas de enums fijos (baja cardinalidad). `domain` y `usecase` siguen sin dependencias de Micrometer.
+- **Actuator en puerto propio** (`management.server.port`, `8081`), solo `health` (grupos `liveness`/`readiness`, sin detalles), `info` y `prometheus`. `readiness` incluye `DependencyHealthIndicator` para DynamoDB y SQS (reactivos, con timeout y caché breve); `liveness` no depende de nada externo.
+- **Profundidad de cola**: `QueueDepthMonitor` (`SmartLifecycle`) sondea `GetQueueAttributes` en segundo plano y publica gauges leídos de memoria.
+- **Logs**: JSON ECS de Spring Boot activable por propiedad; el consumer SQS restaura el `correlationId` del atributo del mensaje (validado como en el filtro web) en el contexto Reactor/MDC del mensaje.
+
 ## Decisiones clave
 
 - **Optimistic locking / conditional writes** en vez de locks distribuidos: sin coordinación, escala horizontal.

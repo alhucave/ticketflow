@@ -2,6 +2,7 @@ package com.ticketflow.usecase;
 
 import com.ticketflow.domain.exception.IdempotencyKeyReusedException;
 import com.ticketflow.domain.exception.IdempotentOrderNotActiveException;
+import com.ticketflow.domain.exception.InsufficientInventoryException;
 import com.ticketflow.domain.exception.OrderAlreadyExistsException;
 import com.ticketflow.domain.exception.OrderEnqueueFailedException;
 import com.ticketflow.domain.model.Order;
@@ -51,9 +52,16 @@ public class RequestPurchaseUseCase {
     private final OrderQueuePublisher queue;
     private final Clock clock;
     private final Duration reservationTtl;
+    private final BusinessMetrics metrics;
 
     public RequestPurchaseUseCase(OrderPlacementRepository placement, OrderRepository orders,
                                   OrderQueuePublisher queue, Clock clock, Duration reservationTtl) {
+        this(placement, orders, queue, clock, reservationTtl, BusinessMetrics.NOOP);
+    }
+
+    public RequestPurchaseUseCase(OrderPlacementRepository placement, OrderRepository orders,
+                                  OrderQueuePublisher queue, Clock clock, Duration reservationTtl,
+                                  BusinessMetrics metrics) {
         if (reservationTtl == null || reservationTtl.isZero() || reservationTtl.isNegative()) {
             throw new IllegalArgumentException("Reservation TTL must be positive: " + reservationTtl);
         }
@@ -62,6 +70,7 @@ public class RequestPurchaseUseCase {
         this.queue = queue;
         this.clock = clock;
         this.reservationTtl = reservationTtl;
+        this.metrics = metrics;
     }
 
     public Mono<RequestPurchaseResult> execute(RequestPurchaseCommand command) {
@@ -71,8 +80,19 @@ public class RequestPurchaseUseCase {
                     command.quantity(), TicketStatus.RESERVED, command.idempotencyKey(),
                     now.plus(reservationTtl), now);
             return placement.placeReservation(order, ACTOR)
+                    .doOnNext(placed -> {
+                        metrics.orderPlaced();
+                        // Runs under the request's correlation id (MDC): the first line of an order's trail.
+                        LOG.info("Order {} placed: {} ticket(s) reserved until {}", placed.id().value(),
+                                placed.quantity().value(), placed.reservationExpiresAt());
+                    })
                     .flatMap(this::enqueue)
-                    .onErrorResume(OrderAlreadyExistsException.class, error -> replay(command, order));
+                    .onErrorResume(OrderAlreadyExistsException.class, error -> replay(command, order))
+                    .doOnError(InsufficientInventoryException.class, error -> {
+                        metrics.purchaseRejected(BusinessMetrics.PurchaseRejection.INSUFFICIENT_INVENTORY);
+                        metrics.conflict(BusinessMetrics.ConflictType.INVENTORY_INSUFFICIENT,
+                                BusinessMetrics.Operation.PURCHASE);
+                    });
         });
     }
 
@@ -84,7 +104,9 @@ public class RequestPurchaseUseCase {
 
     private Mono<RequestPurchaseResult> compensate(Order order, Throwable publishError) {
         LOG.error("Publishing order {} failed; releasing its reservation", order.id().value(), publishError);
+        metrics.purchaseRejected(BusinessMetrics.PurchaseRejection.ENQUEUE_FAILED);
         return placement.releaseReservation(order, TicketStatus.RESERVED, ACTOR, PUBLISH_FAILED_REASON, clock.instant())
+                .doOnNext(released -> metrics.orderReleased(BusinessMetrics.ReleaseReason.PUBLISH_FAILED))
                 .thenReturn(new OrderEnqueueFailedException(order.id(), true, publishError))
                 .onErrorResume(releaseError -> {
                     LOG.error("Releasing the reservation of order {} failed; the expiry sweep will reclaim it",
@@ -104,13 +126,16 @@ public class RequestPurchaseUseCase {
                 .flatMap(existing -> {
                     if (!existing.eventId().equals(command.eventId())
                             || !existing.quantity().equals(command.quantity())) {
+                        metrics.purchaseRejected(BusinessMetrics.PurchaseRejection.IDEMPOTENCY_KEY_REUSED);
                         return Mono.<RequestPurchaseResult>error(
                                 new IdempotencyKeyReusedException(command.idempotencyKey(), existing.id()));
                     }
                     if (existing.status() == TicketStatus.AVAILABLE) {
+                        metrics.purchaseRejected(BusinessMetrics.PurchaseRejection.ORDER_NOT_ACTIVE);
                         return Mono.<RequestPurchaseResult>error(
                                 new IdempotentOrderNotActiveException(command.idempotencyKey(), existing.id()));
                     }
+                    metrics.purchaseReplayed();
                     if (existing.status() == TicketStatus.RESERVED) {
                         return republish(existing).thenReturn(RequestPurchaseResult.of(existing, true));
                     }

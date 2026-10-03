@@ -1,9 +1,11 @@
 package com.ticketflow.infrastructure.config;
 
 import com.github.benmanes.caffeine.cache.Ticker;
+import com.ticketflow.infrastructure.observability.OperationalMetrics;
 import com.ticketflow.infrastructure.web.ratelimit.ClientAddressResolver;
 import com.ticketflow.infrastructure.web.ratelimit.ClientRateLimiter;
 import com.ticketflow.infrastructure.web.ratelimit.RateLimitWebFilter;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -37,7 +39,8 @@ public class RateLimitConfig {
 
     @Bean
     RateLimitWebFilter rateLimitWebFilter(@Qualifier(WRITE_LIMITER) ClientRateLimiter limiter,
-                                          ClientAddressResolver clients) {
-        return new RateLimitWebFilter(limiter, clients);
+                                          ClientAddressResolver clients,
+                                          ObjectProvider<OperationalMetrics> metrics) {
+        return new RateLimitWebFilter(limiter, clients, metrics.getIfAvailable(() -> OperationalMetrics.NOOP));
     }
 }

@@ -2,6 +2,7 @@ package com.ticketflow.infrastructure.messaging;
 
 import com.ticketflow.domain.model.Order;
 import com.ticketflow.domain.port.OrderQueuePublisher;
+import com.ticketflow.infrastructure.observability.OperationalMetrics;
 import java.io.IOException;
 import java.time.Duration;
 import java.util.HashMap;
@@ -10,6 +11,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import reactor.core.publisher.Mono;
 import reactor.util.retry.Retry;
+import reactor.util.retry.RetryBackoffSpec;
 import software.amazon.awssdk.core.exception.SdkClientException;
 import software.amazon.awssdk.awscore.exception.AwsServiceException;
 import software.amazon.awssdk.services.sqs.SqsAsyncClient;
@@ -48,15 +50,21 @@ public final class SqsOrderQueuePublisher implements OrderQueuePublisher {
     private final SqsAsyncClient client;
     private final Mono<String> queueUrl;
     private final Retry retry;
+    private final OperationalMetrics metrics;
 
     private SqsOrderQueuePublisher(SqsAsyncClient client, Mono<String> queueUrl, int maxRetries,
-                                   Duration minBackoff) {
+                                   Duration minBackoff, OperationalMetrics metrics) {
         this.client = client;
         this.queueUrl = queueUrl;
-        this.retry = transientRetry(maxRetries, minBackoff);
+        this.metrics = metrics;
+        this.retry = retrySpec(maxRetries, minBackoff).doBeforeRetry(signal -> metrics.publishRetried());
     }
 
     static Retry transientRetry(int maxRetries, Duration minBackoff) {
+        return retrySpec(maxRetries, minBackoff);
+    }
+
+    private static RetryBackoffSpec retrySpec(int maxRetries, Duration minBackoff) {
         return Retry.backoff(maxRetries, minBackoff)
                 .filter(SqsOrderQueuePublisher::isTransient)
                 .onRetryExhaustedThrow((spec, signal) -> signal.failure());
@@ -64,19 +72,35 @@ public final class SqsOrderQueuePublisher implements OrderQueuePublisher {
 
     /** Publisher for a queue identified by name; the URL is resolved lazily and cached. */
     public static SqsOrderQueuePublisher forQueueName(SqsAsyncClient client, String queueName) {
-        return forQueueName(client, queueName, DEFAULT_MAX_RETRIES, DEFAULT_MIN_BACKOFF);
+        return forQueueName(client, queueName, DEFAULT_MAX_RETRIES, DEFAULT_MIN_BACKOFF, OperationalMetrics.NOOP);
+    }
+
+    public static SqsOrderQueuePublisher forQueueName(SqsAsyncClient client, String queueName,
+                                                      OperationalMetrics metrics) {
+        return forQueueName(client, queueName, DEFAULT_MAX_RETRIES, DEFAULT_MIN_BACKOFF, metrics);
     }
 
     static SqsOrderQueuePublisher forQueueName(SqsAsyncClient client, String queueName, int maxRetries,
                                                Duration minBackoff) {
+        return forQueueName(client, queueName, maxRetries, minBackoff, OperationalMetrics.NOOP);
+    }
+
+    static SqsOrderQueuePublisher forQueueName(SqsAsyncClient client, String queueName, int maxRetries,
+                                               Duration minBackoff, OperationalMetrics metrics) {
         Retry retry = transientRetry(maxRetries, minBackoff);
         Mono<String> resolved = SqsQueueUrlResolver.byName(client, queueName, retry);
-        return new SqsOrderQueuePublisher(client, resolved, maxRetries, minBackoff);
+        return new SqsOrderQueuePublisher(client, resolved, maxRetries, minBackoff, metrics);
     }
 
     /** Publisher for a queue whose URL is already known. */
     public static SqsOrderQueuePublisher forQueueUrl(SqsAsyncClient client, String queueUrl) {
-        return new SqsOrderQueuePublisher(client, Mono.just(queueUrl), DEFAULT_MAX_RETRIES, DEFAULT_MIN_BACKOFF);
+        return forQueueUrl(client, queueUrl, OperationalMetrics.NOOP);
+    }
+
+    public static SqsOrderQueuePublisher forQueueUrl(SqsAsyncClient client, String queueUrl,
+                                                     OperationalMetrics metrics) {
+        return new SqsOrderQueuePublisher(client, Mono.just(queueUrl), DEFAULT_MAX_RETRIES, DEFAULT_MIN_BACKOFF,
+                metrics);
     }
 
     @Override
@@ -89,7 +113,10 @@ public final class SqsOrderQueuePublisher implements OrderQueuePublisher {
                     .build();
             return Mono.fromFuture(() -> client.sendMessage(request)).retryWhen(retry);
         })).doOnNext(response -> LOG.debug("Order {} enqueued as SQS message {}", order.id().value(),
-                response.messageId())).then();
+                        response.messageId()))
+                .doOnSuccess(response -> metrics.publishCompleted(OperationalMetrics.PublishOutcome.OK))
+                .doOnError(error -> metrics.publishCompleted(OperationalMetrics.PublishOutcome.FAILED))
+                .then();
     }
 
     private static Map<String, MessageAttributeValue> attributes(Order order, String correlationId) {

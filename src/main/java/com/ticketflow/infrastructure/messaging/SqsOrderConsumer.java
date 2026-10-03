@@ -2,8 +2,11 @@ package com.ticketflow.infrastructure.messaging;
 
 import com.ticketflow.domain.model.OrderId;
 import com.ticketflow.infrastructure.config.SqsConsumerProperties;
+import com.ticketflow.infrastructure.observability.OperationalMetrics;
+import com.ticketflow.infrastructure.web.error.CorrelationId;
 import com.ticketflow.usecase.ProcessOrderResult;
 import com.ticketflow.usecase.ProcessOrderUseCase;
+import java.time.Duration;
 import java.util.concurrent.TimeoutException;
 import java.util.function.BooleanSupplier;
 import org.slf4j.Logger;
@@ -19,6 +22,7 @@ import reactor.util.retry.Retry;
 import software.amazon.awssdk.services.sqs.SqsAsyncClient;
 import software.amazon.awssdk.services.sqs.model.DeleteMessageRequest;
 import software.amazon.awssdk.services.sqs.model.Message;
+import software.amazon.awssdk.services.sqs.model.MessageAttributeValue;
 import software.amazon.awssdk.services.sqs.model.MessageSystemAttributeName;
 import software.amazon.awssdk.services.sqs.model.ReceiveMessageRequest;
 import software.amazon.awssdk.services.sqs.model.ReceiveMessageResponse;
@@ -52,6 +56,14 @@ import tools.jackson.databind.json.JsonMapper;
  * can never leave the old loop polling next to the new one (the old one finishes its in-flight batch and
  * ends).
  *
+ * <p><b>Correlation.</b> The {@code correlationId} message attribute written by the publisher is validated
+ * with the same rules as the web filter ({@link CorrelationId#resolve}; a missing or unsafe value is replaced
+ * by a fresh id) and placed in the Reactor context of that message only, so every log line of its processing
+ * carries it in the MDC and a purchase can be followed API -> queue -> consumer.
+ *
+ * <p>Metrics ({@link OperationalMetrics}): one outcome (processed / failed / poison) and the processing time
+ * per received message.
+ *
  * <p>Logs never include message bodies.
  */
 public final class SqsOrderConsumer implements SmartLifecycle {
@@ -64,6 +76,7 @@ public final class SqsOrderConsumer implements SmartLifecycle {
     private final ProcessOrderUseCase useCase;
     private final SqsConsumerProperties properties;
     private final Scheduler timer;
+    private final OperationalMetrics metrics;
 
     private Disposable subscription;
     private Sinks.Empty<Void> stopSignal;
@@ -74,11 +87,22 @@ public final class SqsOrderConsumer implements SmartLifecycle {
 
     public SqsOrderConsumer(SqsAsyncClient client, Mono<String> queueUrl, ProcessOrderUseCase useCase,
                             SqsConsumerProperties properties) {
-        this(client, queueUrl, useCase, properties, Schedulers.parallel());
+        this(client, queueUrl, useCase, properties, OperationalMetrics.NOOP);
+    }
+
+    public SqsOrderConsumer(SqsAsyncClient client, Mono<String> queueUrl, ProcessOrderUseCase useCase,
+                            SqsConsumerProperties properties, OperationalMetrics metrics) {
+        this(client, queueUrl, useCase, properties, Schedulers.parallel(), metrics);
     }
 
     SqsOrderConsumer(SqsAsyncClient client, Mono<String> queueUrl, ProcessOrderUseCase useCase,
                      SqsConsumerProperties properties, Scheduler timer) {
+        this(client, queueUrl, useCase, properties, timer, OperationalMetrics.NOOP);
+    }
+
+    SqsOrderConsumer(SqsAsyncClient client, Mono<String> queueUrl, ProcessOrderUseCase useCase,
+                     SqsConsumerProperties properties, Scheduler timer, OperationalMetrics metrics) {
+        this.metrics = metrics;
         this.client = client;
         this.queueUrl = queueUrl;
         this.useCase = useCase;
@@ -170,6 +194,7 @@ public final class SqsOrderConsumer implements SmartLifecycle {
                 .waitTimeSeconds((int) properties.waitTime().toSeconds())
                 .visibilityTimeout((int) properties.visibilityTimeout().toSeconds())
                 .messageSystemAttributeNames(MessageSystemAttributeName.APPROXIMATE_RECEIVE_COUNT)
+                .messageAttributeNames(SqsOrderQueuePublisher.ATTR_CORRELATION_ID)
                 .build();
     }
 
@@ -184,27 +209,44 @@ public final class SqsOrderConsumer implements SmartLifecycle {
 
     /** Processes one message; never fails: every error leaves the message undeleted for redelivery. */
     private Mono<Void> handle(Message message) {
+        return Mono.defer(() -> {
+            long startedAt = System.nanoTime();
+            return process(message)
+                    .contextWrite(context -> context.put(CorrelationId.KEY, correlationId(message)))
+                    .doOnSuccess(outcome -> metrics.consumerMessage(outcome,
+                            Duration.ofNanos(System.nanoTime() - startedAt)));
+        }).then();
+    }
+
+    private Mono<OperationalMetrics.ConsumerOutcome> process(Message message) {
         return Mono.fromCallable(() -> parse(message))
+                .flatMap(orderId -> Mono.defer(() -> useCase.execute(orderId))
+                        .flatMap(result -> acknowledge(message, result)
+                                .thenReturn(OperationalMetrics.ConsumerOutcome.PROCESSED)))
                 .onErrorResume(InvalidMessageException.class, error -> {
                     LOG.warn("Discarding poison message {} (receiveCount={}): {}; not deleted, SQS will redrive it",
                             message.messageId(), receiveCount(message), error.getMessage());
-                    return Mono.empty();
+                    return Mono.just(OperationalMetrics.ConsumerOutcome.POISON);
                 })
-                .flatMap(orderId -> Mono.defer(() -> useCase.execute(orderId))
-                        .flatMap(result -> acknowledge(message, result)))
                 .onErrorResume(error -> {
                     LOG.warn("Message {} (receiveCount={}) not acknowledged, SQS will redeliver: {}: {}",
                             message.messageId(), receiveCount(message), error.getClass().getSimpleName(),
                             error.getMessage());
-                    return Mono.empty();
+                    return Mono.just(OperationalMetrics.ConsumerOutcome.FAILED);
                 });
+    }
+
+    /** The publisher's correlation id when it is a safe value, otherwise a fresh one (never trust the queue). */
+    private static String correlationId(Message message) {
+        MessageAttributeValue attribute = message.messageAttributes().get(SqsOrderQueuePublisher.ATTR_CORRELATION_ID);
+        return CorrelationId.resolve(attribute == null ? null : attribute.stringValue());
     }
 
     private Mono<Void> acknowledge(Message message, ProcessOrderResult result) {
         return queueUrl
                 .flatMap(url -> Mono.fromFuture(() -> client.deleteMessage(DeleteMessageRequest.builder()
                         .queueUrl(url).receiptHandle(message.receiptHandle()).build())))
-                .doOnSuccess(response -> LOG.debug("Order {} processed as {}; message {} deleted",
+                .doOnSuccess(response -> LOG.info("Order {} processed as {}; message {} deleted",
                         result.orderId().value(), result.getClass().getSimpleName(), message.messageId()))
                 .then();
     }
