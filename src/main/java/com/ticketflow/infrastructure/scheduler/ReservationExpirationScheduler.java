@@ -1,8 +1,10 @@
 package com.ticketflow.infrastructure.scheduler;
 
 import com.ticketflow.infrastructure.config.ExpirationProperties;
+import com.ticketflow.infrastructure.observability.OperationalMetrics;
 import com.ticketflow.usecase.ReleaseExpiredReservationsUseCase;
 import java.time.Duration;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 import java.util.function.BooleanSupplier;
 import org.slf4j.Logger;
@@ -42,6 +44,7 @@ public final class ReservationExpirationScheduler implements SmartLifecycle {
     private final ReleaseExpiredReservationsUseCase useCase;
     private final ExpirationProperties properties;
     private final Scheduler timer;
+    private final OperationalMetrics metrics;
 
     private Disposable subscription;
     private Sinks.Empty<Void> stopSignal;
@@ -57,6 +60,18 @@ public final class ReservationExpirationScheduler implements SmartLifecycle {
 
     public ReservationExpirationScheduler(ReleaseExpiredReservationsUseCase useCase,
                                           ExpirationProperties properties, Scheduler timer) {
+        this(useCase, properties, timer, OperationalMetrics.NOOP);
+    }
+
+    public ReservationExpirationScheduler(ReleaseExpiredReservationsUseCase useCase,
+                                          ExpirationProperties properties, OperationalMetrics metrics) {
+        this(useCase, properties, Schedulers.parallel(), metrics);
+    }
+
+    public ReservationExpirationScheduler(ReleaseExpiredReservationsUseCase useCase,
+                                          ExpirationProperties properties, Scheduler timer,
+                                          OperationalMetrics metrics) {
+        this.metrics = metrics;
         this.useCase = useCase;
         this.properties = properties;
         this.timer = timer;
@@ -128,13 +143,22 @@ public final class ReservationExpirationScheduler implements SmartLifecycle {
                 .flatMap(tick -> sweep());
     }
 
-    /** One sweep; never fails, so the schedule survives any error. */
+    /** One sweep; never fails, so the schedule survives any error. Records its result and duration. */
     private Mono<Void> sweep() {
-        return Mono.defer(useCase::execute)
+        return Mono.defer(() -> {
+            long startedAt = timer.now(TimeUnit.MILLISECONDS);
+            return useCase.execute()
+                    .doOnNext(summary -> metrics.expirationSweepCompleted(summary, elapsedSince(startedAt)))
+                    .doOnError(error -> metrics.expirationSweepFailed(elapsedSince(startedAt)));
+        })
                 .onErrorResume(error -> {
                     LOG.error("Reservation expiration sweep failed; will retry at the next interval", error);
                     return Mono.empty();
                 })
                 .then();
+    }
+
+    private Duration elapsedSince(long startedAtMillis) {
+        return Duration.ofMillis(Math.max(0, timer.now(TimeUnit.MILLISECONDS) - startedAtMillis));
     }
 }

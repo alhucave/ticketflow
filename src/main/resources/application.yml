@@ -7,10 +7,33 @@ spring:
       # Every JSON body of this API is well under 1 KB; 32 KB leaves ample room.
       max-in-memory-size: 32KB
 management:
+  server:
+    # Actuator lives on its own port, never on the public one (8080 answers 404 for /actuator/**). Loopback by
+    # default so a local run does not expose it to the network; the container sets 0.0.0.0 (MANAGEMENT_SERVER_ADDRESS)
+    # and docker-compose publishes it on 127.0.0.1 only.
+    port: ${MANAGEMENT_SERVER_PORT:8081}
+    address: ${MANAGEMENT_SERVER_ADDRESS:127.0.0.1}
   endpoints:
     web:
       exposure:
-        include: health
+        # Nothing else is exposed (no env, beans, heapdump, loggers...).
+        include: health,info,prometheus
+  endpoint:
+    health:
+      # Only UP/DOWN: no components, no details (they could name endpoints or reveal topology).
+      show-details: never
+      show-components: never
+      probes:
+        enabled: true
+      group:
+        # Liveness never depends on an external system: a DynamoDB/SQS outage must not get the process restarted.
+        liveness:
+          include: livenessState
+        readiness:
+          include: readinessState,dynamodb,sqs
+  metrics:
+    tags:
+      application: ${spring.application.name}
 ticketflow:
   admin:
     # Secret for admin routes (X-Admin-Key). Never commit a value: empty (default) disables them (403).
@@ -22,6 +45,15 @@ ticketflow:
     # Overridable from the environment; endpoint/credentials are set only for local development.
     orders-queue-name: ${ORDERS_QUEUE_NAME:orders}
 logging:
+  structured:
+    ecs:
+      service:
+        name: ${spring.application.name}
+        version: "@projectVersion@"
+        environment: ${TICKETFLOW_ENVIRONMENT:local}
+    # JSON logs (one object per line, ECS fields + MDC, so correlationId on every line): set
+    # LOGGING_STRUCTURED_FORMAT_CONSOLE=ecs (the container image and docker-compose do). Unset (default for local
+    # runs) keeps the human-readable pattern below.
   pattern:
     # %X{correlationId} is filled from the Reactor context (see CorrelationContextPropagation); "-" outside a request.
     correlation: "[%X{correlationId:-}] "

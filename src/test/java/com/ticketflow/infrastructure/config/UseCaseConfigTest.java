@@ -12,6 +12,7 @@ import com.ticketflow.domain.port.OrderRepository;
 import com.ticketflow.domain.model.EventId;
 import com.ticketflow.domain.model.IdempotencyKey;
 import com.ticketflow.domain.model.Quantity;
+import com.ticketflow.usecase.BusinessMetrics;
 import com.ticketflow.usecase.RequestPurchaseCommand;
 import java.time.Duration;
 import reactor.core.publisher.Mono;
@@ -34,12 +35,13 @@ class UseCaseConfigTest {
         assertThat(config.listEventsUseCase(events)).isNotNull();
         assertThat(config.getOrderStatusUseCase(mock(OrderRepository.class))).isNotNull();
         assertThat(config.processOrderUseCase(mock(OrderRepository.class), mock(OrderFulfillmentRepository.class),
-                mock(OrderPlacementRepository.class), config.clock())).isNotNull();
+                mock(OrderPlacementRepository.class), config.clock(), BusinessMetrics.NOOP)).isNotNull();
         assertThat(config.issueComplimentaryUseCase(mock(OrderPlacementRepository.class),
-                mock(OrderRepository.class), config.clock())).isNotNull();
+                mock(OrderRepository.class), config.clock(), BusinessMetrics.NOOP)).isNotNull();
         assertThat(config.releaseExpiredReservationsUseCase(mock(OrderRepository.class),
                 mock(OrderPlacementRepository.class), config.clock(),
-                new ExpirationProperties(false, Duration.ofMinutes(1), Duration.ZERO, 2, 10, Duration.ZERO)))
+                new ExpirationProperties(false, Duration.ofMinutes(1), Duration.ZERO, 2, 10, Duration.ZERO),
+                BusinessMetrics.NOOP))
                 .isNotNull();
     }
 
@@ -51,7 +53,7 @@ class UseCaseConfigTest {
                 .thenAnswer(i -> Mono.just(i.getArgument(0)));
         org.mockito.Mockito.when(publisher.publish(org.mockito.ArgumentMatchers.any())).thenReturn(Mono.empty());
         var useCase = config.requestPurchaseUseCase(placement, mock(OrderRepository.class), publisher,
-                config.clock(), Duration.ofMinutes(10));
+                config.clock(), Duration.ofMinutes(10), BusinessMetrics.NOOP);
 
         StepVerifier.create(useCase.execute(new RequestPurchaseCommand(
                         new EventId("e"), new Quantity(1), new IdempotencyKey("k"))))

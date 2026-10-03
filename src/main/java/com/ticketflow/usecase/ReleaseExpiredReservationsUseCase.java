@@ -44,9 +44,16 @@ public class ReleaseExpiredReservationsUseCase {
     private final Clock clock;
     private final int concurrency;
     private final int maxPerSweep;
+    private final BusinessMetrics metrics;
 
     public ReleaseExpiredReservationsUseCase(OrderRepository orders, OrderPlacementRepository placement,
                                              Clock clock, int concurrency, int maxPerSweep) {
+        this(orders, placement, clock, concurrency, maxPerSweep, BusinessMetrics.NOOP);
+    }
+
+    public ReleaseExpiredReservationsUseCase(OrderRepository orders, OrderPlacementRepository placement,
+                                             Clock clock, int concurrency, int maxPerSweep,
+                                             BusinessMetrics metrics) {
         if (concurrency < 1) {
             throw new IllegalArgumentException("concurrency must be at least 1");
         }
@@ -58,6 +65,7 @@ public class ReleaseExpiredReservationsUseCase {
         this.clock = clock;
         this.concurrency = concurrency;
         this.maxPerSweep = maxPerSweep;
+        this.metrics = metrics;
     }
 
     /** Runs one sweep; the clock is read once so every order is judged against the same instant. */
@@ -77,8 +85,11 @@ public class ReleaseExpiredReservationsUseCase {
     private Mono<Summary> release(Order order, Instant now) {
         return Mono.defer(() -> placement.releaseReservation(order, order.status(), ACTOR,
                         ProcessOrderUseCase.EXPIRED_REASON, now))
+                .doOnNext(entry -> metrics.orderReleased(BusinessMetrics.ReleaseReason.EXPIRED))
                 .thenReturn(Summary.RELEASED)
                 .onErrorResume(OrderStatusConflictException.class, error -> {
+                    metrics.conflict(BusinessMetrics.ConflictType.ORDER_STATUS,
+                            BusinessMetrics.Operation.EXPIRATION_SWEEP);
                     LOG.debug("Order {} changed concurrently ({}); skipping", order.id().value(),
                             error.getMessage());
                     return Mono.just(Summary.CONFLICT);

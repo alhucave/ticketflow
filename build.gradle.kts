@@ -38,6 +38,9 @@ dependencies {
     implementation("io.micrometer:context-propagation")
     // Bounded, expiring per-client state of the rate limiter (version managed by the Spring Boot BOM).
     implementation("com.github.ben-manes.caffeine:caffeine")
+    // Prometheus scrape endpoint (/actuator/prometheus on the management port). Version managed by the Micrometer BOM
+    // imported through the Spring Boot BOM (Prometheus client 1.x; the *-simpleclient registry is deprecated).
+    runtimeOnly("io.micrometer:micrometer-registry-prometheus")
     implementation("software.amazon.awssdk:dynamodb-enhanced")
     implementation("software.amazon.awssdk:sqs")
 
@@ -50,6 +53,13 @@ dependencies {
     testImplementation("org.testcontainers:testcontainers-junit-jupiter")
     testImplementation("org.testcontainers:testcontainers-localstack")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
+}
+
+// Puts the project version in application.yml (@projectVersion@): it becomes the service.version of the JSON logs.
+tasks.processResources {
+    filesMatching("application.yml") {
+        filter<org.apache.tools.ant.filters.ReplaceTokens>("tokens" to mapOf("projectVersion" to project.version.toString()))
+    }
 }
 
 tasks.test {

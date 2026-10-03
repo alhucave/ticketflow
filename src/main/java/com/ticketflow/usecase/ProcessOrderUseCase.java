@@ -1,5 +1,6 @@
 package com.ticketflow.usecase;
 
+import com.ticketflow.domain.exception.InsufficientInventoryException;
 import com.ticketflow.domain.exception.OrderNotFoundException;
 import com.ticketflow.domain.exception.OrderStatusConflictException;
 import com.ticketflow.domain.model.Order;
@@ -49,9 +50,16 @@ public class ProcessOrderUseCase {
     private final OrderFulfillmentRepository fulfillment;
     private final OrderPlacementRepository placement;
     private final Clock clock;
+    private final BusinessMetrics metrics;
 
     public ProcessOrderUseCase(OrderRepository orders, OrderFulfillmentRepository fulfillment,
                                OrderPlacementRepository placement, Clock clock) {
+        this(orders, fulfillment, placement, clock, BusinessMetrics.NOOP);
+    }
+
+    public ProcessOrderUseCase(OrderRepository orders, OrderFulfillmentRepository fulfillment,
+                               OrderPlacementRepository placement, Clock clock, BusinessMetrics metrics) {
+        this.metrics = metrics;
         this.orders = orders;
         this.fulfillment = fulfillment;
         this.placement = placement;
@@ -59,7 +67,11 @@ public class ProcessOrderUseCase {
     }
 
     public Mono<ProcessOrderResult> execute(OrderId orderId) {
-        return attempt(orderId, MAX_ATTEMPTS);
+        return attempt(orderId, MAX_ATTEMPTS)
+                .doOnNext(result -> metrics.orderProcessed(BusinessMetrics.ProcessOutcome.of(result)))
+                // A source counter that cannot cover the move would break the inventory invariant: surface it.
+                .doOnError(InsufficientInventoryException.class, error -> metrics.conflict(
+                        BusinessMetrics.ConflictType.INVENTORY_INSUFFICIENT, BusinessMetrics.Operation.PROCESS_ORDER));
     }
 
     private Mono<ProcessOrderResult> attempt(OrderId orderId, int attemptsLeft) {
@@ -69,6 +81,7 @@ public class ProcessOrderUseCase {
                 .onErrorResume(OrderNotFoundException.class,
                         error -> Mono.just(new ProcessOrderResult.OrderMissing(orderId)))
                 .onErrorResume(OrderStatusConflictException.class, error -> {
+                    metrics.conflict(BusinessMetrics.ConflictType.ORDER_STATUS, BusinessMetrics.Operation.PROCESS_ORDER);
                     if (attemptsLeft <= 1) {
                         return Mono.error(error);
                     }
@@ -91,11 +104,13 @@ public class ProcessOrderUseCase {
 
     private Mono<ProcessOrderResult> sell(Order order) {
         return Mono.defer(() -> fulfillment.confirmSale(order, ACTOR, clock.instant())
+                .doOnNext(entry -> metrics.orderSold())
                 .thenReturn(new ProcessOrderResult.Sold(order.id())));
     }
 
     private Mono<ProcessOrderResult> release(Order order, Instant now) {
         return placement.releaseReservation(order, order.status(), ACTOR, EXPIRED_REASON, now)
+                .doOnNext(entry -> metrics.orderReleased(BusinessMetrics.ReleaseReason.EXPIRED))
                 .thenReturn(new ProcessOrderResult.ReleasedAsExpired(order.id()));
     }
 

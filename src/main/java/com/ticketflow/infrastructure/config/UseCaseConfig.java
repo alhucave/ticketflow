@@ -8,6 +8,7 @@ import com.ticketflow.domain.port.OrderFulfillmentRepository;
 import com.ticketflow.domain.port.OrderPlacementRepository;
 import com.ticketflow.domain.port.OrderQueuePublisher;
 import com.ticketflow.domain.port.OrderRepository;
+import com.ticketflow.usecase.BusinessMetrics;
 import com.ticketflow.usecase.IssueComplimentaryUseCase;
 import com.ticketflow.usecase.ReleaseExpiredReservationsUseCase;
 import com.ticketflow.usecase.RequestPurchaseUseCase;
@@ -58,16 +59,16 @@ public class UseCaseConfig {
     @Bean
     ProcessOrderUseCase processOrderUseCase(
             OrderRepository orders, OrderFulfillmentRepository fulfillment, OrderPlacementRepository placement,
-            Clock clock) {
-        return new ProcessOrderUseCase(orders, fulfillment, placement, clock);
+            Clock clock, BusinessMetrics metrics) {
+        return new ProcessOrderUseCase(orders, fulfillment, placement, clock, metrics);
     }
 
     @Bean
     ReleaseExpiredReservationsUseCase releaseExpiredReservationsUseCase(
             OrderRepository orders, OrderPlacementRepository placement, Clock clock,
-            ExpirationProperties expiration) {
+            ExpirationProperties expiration, BusinessMetrics metrics) {
         return new ReleaseExpiredReservationsUseCase(
-                orders, placement, clock, expiration.concurrency(), expiration.maxPerSweep());
+                orders, placement, clock, expiration.concurrency(), expiration.maxPerSweep(), metrics);
     }
 
     @Bean
@@ -88,13 +89,14 @@ public class UseCaseConfig {
             OrderRepository orders,
             OrderQueuePublisher queue,
             Clock clock,
-            @Value("${ticketflow.reservation.ttl:PT10M}") Duration reservationTtl) {
-        return new RequestPurchaseUseCase(placement, orders, queue, clock, reservationTtl);
+            @Value("${ticketflow.reservation.ttl:PT10M}") Duration reservationTtl,
+            BusinessMetrics metrics) {
+        return new RequestPurchaseUseCase(placement, orders, queue, clock, reservationTtl, metrics);
     }
 
     @Bean
     IssueComplimentaryUseCase issueComplimentaryUseCase(
-            OrderPlacementRepository placement, OrderRepository orders, Clock clock) {
-        return new IssueComplimentaryUseCase(placement, orders, clock);
+            OrderPlacementRepository placement, OrderRepository orders, Clock clock, BusinessMetrics metrics) {
+        return new IssueComplimentaryUseCase(placement, orders, clock, metrics);
     }
 }

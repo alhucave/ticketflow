@@ -1,6 +1,7 @@
 package com.ticketflow.usecase;
 
 import com.ticketflow.domain.exception.IdempotencyKeyReusedException;
+import com.ticketflow.domain.exception.InsufficientInventoryException;
 import com.ticketflow.domain.exception.OrderAlreadyExistsException;
 import com.ticketflow.domain.model.Order;
 import com.ticketflow.domain.model.OrderAuditEntry;
@@ -37,8 +38,15 @@ public class IssueComplimentaryUseCase {
     private final OrderPlacementRepository placement;
     private final OrderRepository orders;
     private final Clock clock;
+    private final BusinessMetrics metrics;
 
     public IssueComplimentaryUseCase(OrderPlacementRepository placement, OrderRepository orders, Clock clock) {
+        this(placement, orders, clock, BusinessMetrics.NOOP);
+    }
+
+    public IssueComplimentaryUseCase(OrderPlacementRepository placement, OrderRepository orders, Clock clock,
+                                     BusinessMetrics metrics) {
+        this.metrics = metrics;
         this.placement = placement;
         this.orders = orders;
         this.clock = clock;
@@ -49,8 +57,11 @@ public class IssueComplimentaryUseCase {
             Order order = Order.complimentary(OrderId.complimentaryFromIdempotencyKey(command.idempotencyKey()),
                     command.eventId(), command.quantity(), command.idempotencyKey(), clock.instant());
             return placement.issueComplimentary(order, ACTOR, command.reason())
+                    .doOnNext(stored -> metrics.complimentaryIssued())
                     .map(stored -> IssueComplimentaryResult.of(stored, false))
-                    .onErrorResume(OrderAlreadyExistsException.class, error -> replay(command, order));
+                    .onErrorResume(OrderAlreadyExistsException.class, error -> replay(command, order))
+                    .doOnError(InsufficientInventoryException.class, error -> metrics.conflict(
+                            BusinessMetrics.ConflictType.INVENTORY_INSUFFICIENT, BusinessMetrics.Operation.COMPLIMENTARY));
         });
     }
 

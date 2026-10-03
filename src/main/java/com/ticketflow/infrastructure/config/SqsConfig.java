@@ -2,6 +2,8 @@ package com.ticketflow.infrastructure.config;
 
 import com.ticketflow.domain.port.OrderQueuePublisher;
 import com.ticketflow.infrastructure.messaging.SqsOrderQueuePublisher;
+import com.ticketflow.infrastructure.observability.OperationalMetrics;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -24,10 +26,12 @@ public class SqsConfig {
     }
 
     @Bean
-    OrderQueuePublisher orderQueuePublisher(SqsAsyncClient client, SqsProperties properties) {
+    OrderQueuePublisher orderQueuePublisher(SqsAsyncClient client, SqsProperties properties,
+                                            ObjectProvider<OperationalMetrics> metricsProvider) {
+        OperationalMetrics metrics = metricsProvider.getIfAvailable(() -> OperationalMetrics.NOOP);
         return properties.hasQueueUrl()
-                ? SqsOrderQueuePublisher.forQueueUrl(client, properties.ordersQueueUrl())
-                : SqsOrderQueuePublisher.forQueueName(client, properties.ordersQueueName());
+                ? SqsOrderQueuePublisher.forQueueUrl(client, properties.ordersQueueUrl(), metrics)
+                : SqsOrderQueuePublisher.forQueueName(client, properties.ordersQueueName(), metrics);
     }
 
     static SqsAsyncClient buildClient(SqsProperties properties, SqsAsyncClientBuilder builder) {

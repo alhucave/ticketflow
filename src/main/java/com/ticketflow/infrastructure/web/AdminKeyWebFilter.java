@@ -1,12 +1,15 @@
 package com.ticketflow.infrastructure.web;
 
 import com.ticketflow.infrastructure.config.RateLimitConfig;
+import com.ticketflow.infrastructure.observability.OperationalMetrics;
 import com.ticketflow.infrastructure.web.error.AdminAccessDeniedException;
 import com.ticketflow.infrastructure.web.error.RateLimitExceededException;
 import com.ticketflow.infrastructure.web.ratelimit.ClientAddressResolver;
 import com.ticketflow.infrastructure.web.ratelimit.ClientRateLimiter;
 import java.time.Duration;
 import java.util.List;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.core.Ordered;
@@ -44,9 +47,22 @@ public class AdminKeyWebFilter implements WebFilter {
     private final AdminKeyGuard guard;
     private final ClientAddressResolver clients;
     private final ClientRateLimiter failures;
+    private final OperationalMetrics metrics;
 
+    public AdminKeyWebFilter(String apiKey, ClientAddressResolver clients, ClientRateLimiter failures) {
+        this(apiKey, clients, failures, OperationalMetrics.NOOP);
+    }
+
+    @Autowired
     public AdminKeyWebFilter(@Value("${ticketflow.admin.api-key:}") String apiKey, ClientAddressResolver clients,
-                             @Qualifier(RateLimitConfig.ADMIN_FAILURE_LIMITER) ClientRateLimiter failures) {
+                             @Qualifier(RateLimitConfig.ADMIN_FAILURE_LIMITER) ClientRateLimiter failures,
+                             ObjectProvider<OperationalMetrics> metrics) {
+        this(apiKey, clients, failures, metrics.getIfAvailable(() -> OperationalMetrics.NOOP));
+    }
+
+    public AdminKeyWebFilter(String apiKey, ClientAddressResolver clients, ClientRateLimiter failures,
+                             OperationalMetrics metrics) {
+        this.metrics = metrics;
         this.guard = new AdminKeyGuard(apiKey);
         this.clients = clients;
         this.failures = failures;
@@ -61,6 +77,7 @@ public class AdminKeyWebFilter implements WebFilter {
         String client = clients.resolve(exchange);
         Duration lockedOut = failures.blockedFor(client);
         if (!lockedOut.isZero()) {
+            metrics.rateLimitRejected(OperationalMetrics.Limiter.ADMIN_FAILURE);
             return Mono.error(new RateLimitExceededException(lockedOut));
         }
         try {

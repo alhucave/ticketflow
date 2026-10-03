@@ -418,7 +418,7 @@
     "id": "F-024",
     "name": "observability",
     "phase": 8,
-    "status": "pending",
+    "status": "in_progress",
     "depends_on": [
       "F-019"
     ],

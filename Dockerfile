@@ -18,7 +18,12 @@ WORKDIR /app
 COPY --from=build /workspace/app.jar app.jar
 COPY --from=build /workspace/healthcheck /app/healthcheck
 USER nonroot
-EXPOSE 8080
+# 8080: public API. 8081: actuator (health probes, Prometheus); never publish it beyond localhost or a private network.
+EXPOSE 8080 8081
+# JSON logs (one object per line, with the correlation id) by default in the container; an orchestrator can unset it.
+# The management port must listen on the container interface (its default is loopback only).
+ENV LOGGING_STRUCTURED_FORMAT_CONSOLE=ecs \
+    MANAGEMENT_SERVER_ADDRESS=0.0.0.0
 # The probe is a separate JVM: keep it tiny so it fits next to the app under the container memory limit.
 HEALTHCHECK --interval=15s --timeout=5s --start-period=30s --retries=3 \
     CMD ["java", "-Xmx16m", "-Xss256k", "-XX:+UseSerialGC", "-XX:TieredStopAtLevel=1", "-XX:-UsePerfData", "-cp", "/app/healthcheck", "Healthcheck"]

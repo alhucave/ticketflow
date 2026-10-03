@@ -63,6 +63,8 @@ services:
     image: ticketflow:local
     ports:
       - "127.0.0.1:${APP_PORT:-8080}:8080"
+      # Actuator (health probes, Prometheus metrics): own port, loopback only. Never publish it on 0.0.0.0.
+      - "127.0.0.1:${MANAGEMENT_PORT:-8081}:8081"
     # The distroless image runs as non-root (uid 65532); the JVM only needs a writable /tmp (tmpfs).
     read_only: true
     tmpfs:
@@ -93,6 +95,12 @@ services:
       ADMIN_API_KEY: ${ADMIN_API_KEY:-}
       # Reservation-expiration job (ReleaseExpiredReservationsUseCase), every minute by default.
       TICKETFLOW_EXPIRATION_ENABLED: "true"
+      # Observability (docs/observability.md): JSON logs with the correlation id, actuator on the management port
+      # (listening on the container interface, published on 127.0.0.1 only, see ports), queue-depth gauges.
+      LOGGING_STRUCTURED_FORMAT_CONSOLE: ecs
+      MANAGEMENT_SERVER_ADDRESS: 0.0.0.0
+      TICKETFLOW_ENVIRONMENT: ${TICKETFLOW_ENVIRONMENT:-local}
+      TICKETFLOW_OBSERVABILITY_QUEUE_METRICS_ENABLED: "true"
       # Create DynamoDB tables and GSIs at startup (idempotent).
       TICKETFLOW_DYNAMODB_PROVISIONING_ENABLED: "true"
       TICKETFLOW_DYNAMODB_ENDPOINT: http://dynamodb:8000
@@ -105,7 +113,8 @@ services:
       localstack:
         condition: service_healthy
     healthcheck:
-      # The probe command comes from the image HEALTHCHECK (Java probe, the distroless image has no shell/curl).
+      # The probe command comes from the image HEALTHCHECK (Java probe on the management port liveness endpoint;
+      # the distroless image has no shell/curl).
       interval: 10s
       timeout: 5s
       start_period: 30s
