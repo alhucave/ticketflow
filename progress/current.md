@@ -1,9 +1,5 @@
 # Estado actual
 
-Feature en curso: F-018 — web-events-api
-Plan:
-- Anadir spring-boot-starter-validation; DTOs record + mappers en infrastructure.web
-- EventController (POST/GET/GET list) + RestControllerAdvice extensible en infrastructure.web.error
-- Tests WebFluxTest con casos de uso simulados (todos los codigos de estado)
-- IT C12: @SpringBootTest con contexto completo + DynamoDB Local real
-- README (Endpoints con curl) + verificacion con docker-compose
+Feature en curso: ninguna
+Ultimas completadas: F-001 a F-018 (APPROVED)
+Siguiente: F-019 — web-orders-availability-api (ver notas de F-011/F-012/F-013 en feature_list.json), luego F-020, F-021
