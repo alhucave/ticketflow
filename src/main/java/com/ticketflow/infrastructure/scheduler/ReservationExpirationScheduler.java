@@ -1,0 +1,130 @@
+package com.ticketflow.infrastructure.scheduler;
+
+import com.ticketflow.infrastructure.config.ExpirationProperties;
+import com.ticketflow.usecase.ReleaseExpiredReservationsUseCase;
+import java.time.Duration;
+import java.util.concurrent.TimeoutException;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.context.SmartLifecycle;
+import reactor.core.Disposable;
+import reactor.core.publisher.Mono;
+import reactor.core.publisher.Sinks;
+import reactor.core.scheduler.Scheduler;
+import reactor.core.scheduler.Schedulers;
+
+/**
+ * Runs {@link ReleaseExpiredReservationsUseCase} periodically, without blocking any thread.
+ *
+ * <p><b>No overlap.</b> The loop is "wait {@code interval}, sweep, repeat": the next wait starts only
+ * when the previous sweep finished, so two sweeps never run at the same time in one instance (across
+ * instances the use case is safe by its conditional writes).
+ *
+ * <p><b>Resilience.</b> An error of one sweep (including a failure of the expired-order query) is
+ * logged and the schedule goes on with the next interval.
+ *
+ * <p><b>Shutdown.</b> {@link #stop(Runnable)} cancels the wait between sweeps but lets a sweep in
+ * progress finish for at most {@code shutdownTimeout}; a release interrupted after that is safe
+ * because each one is a single atomic transaction.
+ *
+ * <p>The timer is injectable so tests use virtual time.
+ */
+public final class ReservationExpirationScheduler implements SmartLifecycle {
+
+    private static final Logger LOG = LoggerFactory.getLogger(ReservationExpirationScheduler.class);
+
+    private final ReleaseExpiredReservationsUseCase useCase;
+    private final ExpirationProperties properties;
+    private final Scheduler timer;
+
+    private Disposable subscription;
+    private Sinks.Empty<Void> stopSignal;
+    private Sinks.Empty<Void> terminated;
+    private volatile boolean running;
+
+    public ReservationExpirationScheduler(ReleaseExpiredReservationsUseCase useCase,
+                                          ExpirationProperties properties) {
+        this(useCase, properties, Schedulers.parallel());
+    }
+
+    public ReservationExpirationScheduler(ReleaseExpiredReservationsUseCase useCase,
+                                          ExpirationProperties properties, Scheduler timer) {
+        this.useCase = useCase;
+        this.properties = properties;
+        this.timer = timer;
+    }
+
+    @Override
+    public synchronized void start() {
+        if (running) {
+            return;
+        }
+        running = true;
+        stopSignal = Sinks.empty();
+        terminated = Sinks.empty();
+        Mono<Void> stop = stopSignal.asMono();
+        Sinks.Empty<Void> done = terminated;
+        subscription = cycle(properties.initialDelay(), stop)
+                .thenMany(cycle(properties.interval(), stop).repeat(() -> running))
+                .doFinally(signal -> done.tryEmitEmpty())
+                .subscribe(null, error -> LOG.error("Reservation expiration scheduler terminated unexpectedly",
+                        error));
+        LOG.info("Reservation expiration scheduler started (interval={}, initialDelay={}, concurrency={}, "
+                        + "maxPerSweep={})", properties.interval(), properties.initialDelay(),
+                properties.concurrency(), properties.maxPerSweep());
+    }
+
+    @Override
+    public void stop() {
+        stop(() -> { });
+    }
+
+    @Override
+    public synchronized void stop(Runnable callback) {
+        if (!running) {
+            callback.run();
+            return;
+        }
+        running = false;
+        stopSignal.tryEmitEmpty();
+        Disposable loop = subscription;
+        LOG.info("Reservation expiration scheduler stopping (waiting up to {} for a sweep in progress)",
+                properties.shutdownTimeout());
+        terminated.asMono()
+                .timeout(properties.shutdownTimeout(), timer)
+                .onErrorResume(TimeoutException.class, e -> {
+                    LOG.warn("Reservation expiration sweep did not finish in time; disposing it "
+                            + "(each release is atomic, the rest is picked up by another sweep)");
+                    return Mono.empty();
+                })
+                .doFinally(signal -> {
+                    loop.dispose();
+                    LOG.info("Reservation expiration scheduler stopped");
+                    callback.run();
+                })
+                .subscribe();
+    }
+
+    @Override
+    public boolean isRunning() {
+        return running;
+    }
+
+    /** Waits {@code delay} (cancelled by stop) and, if still running, performs one sweep. */
+    private Mono<Void> cycle(Duration delay, Mono<Void> stop) {
+        return Mono.delay(delay, timer)
+                .takeUntilOther(stop)
+                .filter(tick -> running)
+                .flatMap(tick -> sweep());
+    }
+
+    /** One sweep; never fails, so the schedule survives any error. */
+    private Mono<Void> sweep() {
+        return Mono.defer(useCase::execute)
+                .onErrorResume(error -> {
+                    LOG.error("Reservation expiration sweep failed; will retry at the next interval", error);
+                    return Mono.empty();
+                })
+                .then();
+    }
+}

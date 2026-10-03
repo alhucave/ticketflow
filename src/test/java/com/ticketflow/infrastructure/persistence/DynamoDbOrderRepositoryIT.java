@@ -245,20 +245,22 @@ class DynamoDbOrderRepositoryIT {
         var expiredPending = order("exp-p-" + tag, TicketStatus.PENDING_CONFIRMATION, past);
         var notYetExpired = order("live-" + tag, TicketStatus.RESERVED, NOW.plusSeconds(1));
         var exactlyNow = order("edge-" + tag, TicketStatus.RESERVED, NOW);
+        var oneTickLater = order("tick-" + tag, TicketStatus.RESERVED, NOW.plusNanos(1));
         var expiredSold = order("sold-" + tag, TicketStatus.SOLD, past);
         var expiredAvailable = order("avail-" + tag, TicketStatus.AVAILABLE, past);
         for (var o : List.of(expiredReserved, expiredPending, notYetExpired, exactlyNow, expiredSold,
-                expiredAvailable)) {
+                expiredAvailable, oneTickLater)) {
             repository.save(o).block(WAIT);
         }
 
         var found = repository.findExpiredReservations(NOW).collectList().block(WAIT);
 
-        assertThat(found).contains(expiredReserved, expiredPending)
-                .doesNotContain(notYetExpired, exactlyNow, expiredSold, expiredAvailable);
+        // expiresAt <= now is expired: the boundary instant is included, one nanosecond later is not
+        assertThat(found).contains(expiredReserved, expiredPending, exactlyNow)
+                .doesNotContain(notYetExpired, oneTickLater, expiredSold, expiredAvailable);
         assertThat(found).allSatisfy(o -> {
             assertThat(o.status()).isIn(TicketStatus.RESERVED, TicketStatus.PENDING_CONFIRMATION);
-            assertThat(o.reservationExpiresAt()).isBefore(NOW);
+            assertThat(o.reservationExpiresAt()).isBeforeOrEqualTo(NOW);
         });
     }
 

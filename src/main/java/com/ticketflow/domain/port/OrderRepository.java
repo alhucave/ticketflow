@@ -36,7 +36,11 @@ public interface OrderRepository {
     /** Looks an order up by its idempotency key (empty when none). */
     Mono<Order> findByIdempotencyKey(IdempotencyKey key);
 
-    /** Orders in RESERVED or PENDING_CONFIRMATION whose reservation expired before {@code now}. */
+    /**
+     * Orders in RESERVED or PENDING_CONFIRMATION whose reservation is expired at {@code now}, i.e.
+     * {@code reservationExpiresAt <= now} (the boundary instant is expired). Backed by an index, so the
+     * read is eventually consistent: callers must rely on conditional writes, not on this snapshot.
+     */
     Flux<Order> findExpiredReservations(Instant now);
 
     Mono<OrderAuditEntry> saveAuditEntry(OrderAuditEntry entry);

@@ -288,7 +288,7 @@
     "id": "F-017",
     "name": "reservation-expiration-job",
     "phase": 6,
-    "status": "pending",
+    "status": "done",
     "depends_on": [
       "F-008",
       "F-009"
@@ -406,7 +406,7 @@
     ],
     "issue": 23,
     "title": "Security hardening",
-    "description": "Secrets only via env vars, request size limits, per-client rate limiting on POST /orders, max quantity per order, input validation, idempotency protection against malicious retries, dependency vulnerability scan in CI, and non-root, minimal runtime image. NOTE (from F-012 review): scope the Idempotency-Key per principal/client so one client cannot collide with or probe another's orders (OrderId is derived from the key alone); do not cancel the purchase pipeline on client disconnect (e.g. detach the reserve/publish chain from the request subscription).",
+    "description": "Secrets only via env vars, request size limits, per-client rate limiting on POST /orders, max quantity per order, input validation, idempotency protection against malicious retries, dependency vulnerability scan in CI, and non-root, minimal runtime image. NOTE (from F-012 review): scope the Idempotency-Key per principal/client so one client cannot collide with or probe another's orders (OrderId is derived from the key alone); do not cancel the purchase pipeline on client disconnect (e.g. detach the reserve/publish chain from the request subscription). NOTE (from F-017 review): SqsOrderConsumer and ReservationExpirationScheduler share a `running` flag across runs; a stop() followed by start() while a previous drain/sweep is still running can overlap the old loop with the new one (data-safe thanks to conditional writes, but wasteful). Fix both lifecycles with a per-start generation token captured in the repeat predicate, and add a restart-during-drain test.",
     "acceptance": [
       "Rate limit returns 429 when exceeded (tested)",
       "Max quantity per order enforced",

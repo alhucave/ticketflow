@@ -63,7 +63,7 @@ Invariante: `available + reserved + pendingConfirmation + sold + complimentary =
    - `RESERVED`/`PENDING_CONFIRMATION` con `reservationExpiresAt <= now`: `releaseReservation` (razón `reservation expired`) → `ReleasedAsExpired`; la orden queda `AVAILABLE` (no hay estados EXPIRED/FAILED) y nunca se vende.
    - Concurrencia: con varios workers sobre la misma orden gana exactamente uno por paso (condición de estado); el perdedor recibe `OrderStatusConflictException`, lo trata como benigno releyendo la orden (acotado a 5 lecturas) y termina como `AlreadyProcessed` o ayuda a terminar el paso pendiente. Los errores transitorios de infraestructura se propagan para que SQS reentregue.
 3. Mensajes que fallan tras N reintentos van a una DLQ.
-4. El scheduler libera cada minuto las reservas vencidas (`RESERVED/PENDING_CONFIRMATION` con `expiresAt < now`) devolviéndolas a `available`.
+4. El scheduler (`ReservationExpirationScheduler`, F-017; `ticketflow.expiration.*`, desactivado por defecto) ejecuta cada minuto `ReleaseExpiredReservationsUseCase`: consulta el GSI `status` + `reservationExpiresAt` (paginado, eventualmente consistente; solo da candidatas) las órdenes `RESERVED/PENDING_CONFIRMATION` con `expiresAt <= now` (la frontera cuenta como expirada, igual que `ProcessOrderUseCase`) y libera cada una con `releaseReservation` (razón `reservation expired`), devolviéndolas a `available`. Concurrencia y tope por barrido acotados; un conflicto de estado (otro barrido o el consumer ganó) es benigno, y el fallo de una orden no aborta el barrido. Nunca hay dos barridos solapados en una instancia; entre instancias basta la escritura condicionada (un único ganador por orden).
 
 ## Decisiones clave
 
