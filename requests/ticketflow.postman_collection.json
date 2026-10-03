@@ -1,0 +1,1635 @@
+{
+  "info": {
+    "_postman_id": "0d1e1124-4b7f-505f-b115-4372f3804c97",
+    "name": "ticketflow",
+    "description": "Flujo completo de ticketflow: eventos, compra asíncrona con Idempotency-Key, estado de la orden, disponibilidad, errores, cortesías (admin) y puerto de gestión. Ver requests/README en el README del repositorio. Las peticiones se ejecutan en orden y comparten variables de colección (eventId, orderId, idempotencyKey...).",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "0. Preparación",
+      "item": [
+        {
+          "name": "Readiness (espera a que la app esté lista)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('status UP', function () { pm.expect(pm.response.json().status).to.eql('UP'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{managementUrl}}/actuator/health/readiness",
+              "host": [
+                "{{managementUrl}}"
+              ],
+              "path": [
+                "actuator",
+                "health",
+                "readiness"
+              ]
+            },
+            "description": "Puerto de gestión (8081). 503 mientras DynamoDB/SQS no responden o las tablas se están creando."
+          }
+        }
+      ]
+    },
+    {
+      "name": "1. Eventos",
+      "item": [
+        {
+          "name": "Crear evento",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const startsAt = new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString();",
+                  "pm.collectionVariables.set('startsAt', startsAt);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 201', function () { pm.response.to.have.status(201); });",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test('body y Location', function () {",
+                  "    pm.expect(body.id).to.be.a('string');",
+                  "    pm.expect(body.capacity).to.eql(100);",
+                  "    pm.expect(pm.response.headers.get('Location')).to.eql('/events/' + body.id);",
+                  "});",
+                  "pm.collectionVariables.set('eventId', body.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/events",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "events"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\":\"Postman Rock Night\",\"startsAt\":\"{{startsAt}}\",\"venue\":\"Arena\",\"capacity\":100}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "startsAt debe ser futuro (la pre-request script calcula hoy + 1 año). Guarda eventId."
+          }
+        },
+        {
+          "name": "Consultar evento (con inventario)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test('inventario inicial', function () {",
+                  "    pm.expect(body.id).to.eql(pm.collectionVariables.get('eventId'));",
+                  "    pm.expect(body.inventory).to.eql({available: 100, reserved: 0, pendingConfirmation: 0, sold: 0, complimentary: 0});",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/events/{{eventId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "events",
+                "{{eventId}}"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Listar eventos (sin inventario)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+                  "",
+                  "const events = pm.response.json();",
+                  "pm.test('contiene el evento creado y no trae inventario', function () {",
+                  "    const found = events.find(e => e.id === pm.collectionVariables.get('eventId'));",
+                  "    pm.expect(found).to.be.an('object');",
+                  "    pm.expect(found.inventory).to.be.undefined;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/events",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "events"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Disponibilidad (instantánea)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+                  "",
+                  "pm.test('contadores', function () {",
+                  "    pm.expect(pm.response.json()).to.eql({available: 100, reserved: 0, pendingConfirmation: 0, sold: 0, complimentary: 0, capacity: 100});",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/events/{{eventId}}/availability",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "events",
+                "{{eventId}}",
+                "availability"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Disponibilidad en tiempo real (stream SSE)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// Un stream SSE no termina nunca: Newman se quedaría esperando. Se omite con --env-var skipStream=true",
+                  "// (lo hace requests/run-newman.sh). En la app de Postman funciona: muestra los eventos según llegan.",
+                  "if (pm.variables.get('skipStream') === 'true') {",
+                  "    pm.execution.skipRequest();",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+                  "",
+                  "pm.test('es text/event-stream', function () {",
+                  "    pm.expect(pm.response.headers.get('Content-Type')).to.include('text/event-stream');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "text/event-stream"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/events/{{eventId}}/availability/stream",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "events",
+                "{{eventId}}",
+                "availability",
+                "stream"
+              ]
+            },
+            "description": "Emite el valor actual y luego cada cambio. Requiere la app de Postman (o curl -N): el stream no termina."
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Compra asíncrona",
+      "item": [
+        {
+          "name": "Comprar 3 entradas (202)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('idempotencyKey', 'pm-' + pm.variables.replaceIn('{{$guid}}'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 202', function () { pm.response.to.have.status(202); });",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test('202 con orderId, Location y reserva viva', function () {",
+                  "    pm.expect(body.orderId).to.be.a('string');",
+                  "    pm.expect(body.status).to.eql('RESERVED');",
+                  "    pm.expect(body.reservationExpiresAt).to.be.a('string');",
+                  "    pm.expect(pm.response.headers.get('Location')).to.eql('/orders/' + body.orderId);",
+                  "});",
+                  "pm.collectionVariables.set('orderId', body.orderId);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idempotencyKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "orders"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"eventId\":\"{{eventId}}\",\"quantity\":3}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Genera una Idempotency-Key nueva (16-128 caracteres). Responde 202 sin esperar al consumer."
+          }
+        },
+        {
+          "name": "Consultar la orden hasta SOLD (polling)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+                  "",
+                  "const body = pm.response.json();",
+                  "const tries = Number(pm.collectionVariables.get('pollTries') || 0);",
+                  "if (body.status !== 'SOLD' && tries < 100) {",
+                  "    pm.collectionVariables.set('pollTries', tries + 1);",
+                  "    setTimeout(function () { pm.execution.setNextRequest(pm.info.requestName); }, 300);",
+                  "} else {",
+                  "    pm.collectionVariables.unset('pollTries');",
+                  "    pm.test('la orden llega a SOLD (' + tries + ' reintentos)', function () {",
+                  "        pm.expect(body.status).to.eql('SOLD');",
+                  "        pm.expect(body.quantity).to.eql(3);",
+                  "        pm.expect(body.eventId).to.eql(pm.collectionVariables.get('eventId'));",
+                  "        pm.expect(body.reservationExpiresAt).to.be.undefined;",
+                  "    });",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/orders/{{orderId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "orders",
+                "{{orderId}}"
+              ]
+            },
+            "description": "Se repite a sí misma (setNextRequest) hasta que el consumer deja la orden en SOLD (máx. 100 reintentos)."
+          }
+        },
+        {
+          "name": "Replay con la misma clave y body (202, misma orden)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 202', function () { pm.response.to.have.status(202); });",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test('misma orden, sin reservar de nuevo', function () {",
+                  "    pm.expect(body.orderId).to.eql(pm.collectionVariables.get('orderId'));",
+                  "    pm.expect(body.status).to.eql('SOLD');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idempotencyKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "orders"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"eventId\":\"{{eventId}}\",\"quantity\":3}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Misma clave con otro body (409)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 409', function () { pm.response.to.have.status(409); });",
+                  "",
+                  "function problem(status, type) {",
+                  "    pm.test('problem+json ' + type, function () {",
+                  "        pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json');",
+                  "        const body = pm.response.json();",
+                  "        pm.expect(body.status).to.eql(status);",
+                  "        pm.expect(body.type).to.eql('urn:ticketflow:problem:' + type);",
+                  "        pm.expect(body.correlationId).to.be.a('string');",
+                  "    });",
+                  "}",
+                  "problem(409, 'idempotency-key-reused');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idempotencyKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "orders"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"eventId\":\"{{eventId}}\",\"quantity\":4}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Disponibilidad tras la venta",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+                  "",
+                  "pm.test('3 vendidas, nada retenido', function () {",
+                  "    pm.expect(pm.response.json()).to.eql({available: 97, reserved: 0, pendingConfirmation: 0, sold: 3, complimentary: 0, capacity: 100});",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/events/{{eventId}}/availability",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "events",
+                "{{eventId}}",
+                "availability"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Crear evento pequeño (capacidad 2)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const startsAt = new Date(Date.now() + 365 * 24 * 3600 * 1000).toISOString();",
+                  "pm.collectionVariables.set('startsAt', startsAt);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 201', function () { pm.response.to.have.status(201); });",
+                  "pm.collectionVariables.set('smallEventId', pm.response.json().id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/events",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "events"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\":\"Postman Small Hall\",\"startsAt\":\"{{startsAt}}\",\"venue\":\"Hall\",\"capacity\":2}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Inventario insuficiente (409)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('idempotencyKey', 'pm-' + pm.variables.replaceIn('{{$guid}}'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 409', function () { pm.response.to.have.status(409); });",
+                  "",
+                  "function problem(status, type) {",
+                  "    pm.test('problem+json ' + type, function () {",
+                  "        pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json');",
+                  "        const body = pm.response.json();",
+                  "        pm.expect(body.status).to.eql(status);",
+                  "        pm.expect(body.type).to.eql('urn:ticketflow:problem:' + type);",
+                  "        pm.expect(body.correlationId).to.be.a('string');",
+                  "    });",
+                  "}",
+                  "problem(409, 'insufficient-inventory');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idempotencyKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "orders"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"eventId\":\"{{smallEventId}}\",\"quantity\":3}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "El evento pequeño solo tiene 2 entradas: pedir 3 es 409 y no reserva nada."
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Errores de validación y ids inexistentes",
+      "item": [
+        {
+          "name": "Sin cabecera Idempotency-Key (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 400', function () { pm.response.to.have.status(400); });",
+                  "",
+                  "function problem(status, type) {",
+                  "    pm.test('problem+json ' + type, function () {",
+                  "        pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json');",
+                  "        const body = pm.response.json();",
+                  "        pm.expect(body.status).to.eql(status);",
+                  "        pm.expect(body.type).to.eql('urn:ticketflow:problem:' + type);",
+                  "        pm.expect(body.correlationId).to.be.a('string');",
+                  "    });",
+                  "}",
+                  "problem(400, 'invalid-idempotency-key');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "orders"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"eventId\":\"{{eventId}}\",\"quantity\":3}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Clave demasiado corta (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 400', function () { pm.response.to.have.status(400); });",
+                  "",
+                  "function problem(status, type) {",
+                  "    pm.test('problem+json ' + type, function () {",
+                  "        pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json');",
+                  "        const body = pm.response.json();",
+                  "        pm.expect(body.status).to.eql(status);",
+                  "        pm.expect(body.type).to.eql('urn:ticketflow:problem:' + type);",
+                  "        pm.expect(body.correlationId).to.be.a('string');",
+                  "    });",
+                  "}",
+                  "problem(400, 'invalid-idempotency-key');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "value": "short"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "orders"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"eventId\":\"{{eventId}}\",\"quantity\":3}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Cantidad por encima del máximo por orden (400)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('idempotencyKey', 'pm-' + pm.variables.replaceIn('{{$guid}}'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 400', function () { pm.response.to.have.status(400); });",
+                  "",
+                  "function problem(status, type) {",
+                  "    pm.test('problem+json ' + type, function () {",
+                  "        pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json');",
+                  "        const body = pm.response.json();",
+                  "        pm.expect(body.status).to.eql(status);",
+                  "        pm.expect(body.type).to.eql('urn:ticketflow:problem:' + type);",
+                  "        pm.expect(body.correlationId).to.be.a('string');",
+                  "    });",
+                  "}",
+                  "problem(400, 'validation-error');",
+                  "",
+                  "pm.test('violations apunta a quantity', function () {",
+                  "    pm.expect(pm.response.json().violations.map(v => v.field)).to.include('quantity');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idempotencyKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "orders"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"eventId\":\"{{eventId}}\",\"quantity\":11}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Crear evento inválido (400 con violations)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 400', function () { pm.response.to.have.status(400); });",
+                  "",
+                  "function problem(status, type) {",
+                  "    pm.test('problem+json ' + type, function () {",
+                  "        pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json');",
+                  "        const body = pm.response.json();",
+                  "        pm.expect(body.status).to.eql(status);",
+                  "        pm.expect(body.type).to.eql('urn:ticketflow:problem:' + type);",
+                  "        pm.expect(body.correlationId).to.be.a('string');",
+                  "    });",
+                  "}",
+                  "problem(400, 'validation-error');",
+                  "",
+                  "pm.test('violations por campo', function () {",
+                  "    const fields = pm.response.json().violations.map(v => v.field);",
+                  "    pm.expect(fields).to.include.members(['capacity', 'name', 'startsAt']);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/events",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "events"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\":\"\",\"venue\":\"A\",\"capacity\":0}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Crear evento con fecha pasada (400 invalid-event)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 400', function () { pm.response.to.have.status(400); });",
+                  "",
+                  "function problem(status, type) {",
+                  "    pm.test('problem+json ' + type, function () {",
+                  "        pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json');",
+                  "        const body = pm.response.json();",
+                  "        pm.expect(body.status).to.eql(status);",
+                  "        pm.expect(body.type).to.eql('urn:ticketflow:problem:' + type);",
+                  "        pm.expect(body.correlationId).to.be.a('string');",
+                  "    });",
+                  "}",
+                  "problem(400, 'invalid-event');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/events",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "events"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\":\"Pasado\",\"startsAt\":\"2020-01-01T20:00:00Z\",\"venue\":\"Arena\",\"capacity\":10}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "JSON mal formado (400)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 400', function () { pm.response.to.have.status(400); });",
+                  "",
+                  "function problem(status, type) {",
+                  "    pm.test('problem+json ' + type, function () {",
+                  "        pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json');",
+                  "        const body = pm.response.json();",
+                  "        pm.expect(body.status).to.eql(status);",
+                  "        pm.expect(body.type).to.eql('urn:ticketflow:problem:' + type);",
+                  "        pm.expect(body.correlationId).to.be.a('string');",
+                  "    });",
+                  "}",
+                  "problem(400, 'malformed-request');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/events",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "events"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"name\": ",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Evento inexistente (404)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 404', function () { pm.response.to.have.status(404); });",
+                  "",
+                  "function problem(status, type) {",
+                  "    pm.test('problem+json ' + type, function () {",
+                  "        pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json');",
+                  "        const body = pm.response.json();",
+                  "        pm.expect(body.status).to.eql(status);",
+                  "        pm.expect(body.type).to.eql('urn:ticketflow:problem:' + type);",
+                  "        pm.expect(body.correlationId).to.be.a('string');",
+                  "    });",
+                  "}",
+                  "problem(404, 'event-not-found');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/events/no-such-event",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "events",
+                "no-such-event"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Orden inexistente (404)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 404', function () { pm.response.to.have.status(404); });",
+                  "",
+                  "function problem(status, type) {",
+                  "    pm.test('problem+json ' + type, function () {",
+                  "        pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json');",
+                  "        const body = pm.response.json();",
+                  "        pm.expect(body.status).to.eql(status);",
+                  "        pm.expect(body.type).to.eql('urn:ticketflow:problem:' + type);",
+                  "        pm.expect(body.correlationId).to.be.a('string');",
+                  "    });",
+                  "}",
+                  "problem(404, 'order-not-found');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/orders/00000000-0000-5000-8000-000000000000",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "orders",
+                "00000000-0000-5000-8000-000000000000"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Disponibilidad de un evento inexistente (404)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 404', function () { pm.response.to.have.status(404); });",
+                  "",
+                  "function problem(status, type) {",
+                  "    pm.test('problem+json ' + type, function () {",
+                  "        pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json');",
+                  "        const body = pm.response.json();",
+                  "        pm.expect(body.status).to.eql(status);",
+                  "        pm.expect(body.type).to.eql('urn:ticketflow:problem:' + type);",
+                  "        pm.expect(body.correlationId).to.be.a('string');",
+                  "    });",
+                  "}",
+                  "problem(404, 'event-not-found');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/events/no-such-event/availability",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "events",
+                "no-such-event",
+                "availability"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Stream de un evento inexistente (404 JSON, no stream)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 404', function () { pm.response.to.have.status(404); });",
+                  "",
+                  "function problem(status, type) {",
+                  "    pm.test('problem+json ' + type, function () {",
+                  "        pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json');",
+                  "        const body = pm.response.json();",
+                  "        pm.expect(body.status).to.eql(status);",
+                  "        pm.expect(body.type).to.eql('urn:ticketflow:problem:' + type);",
+                  "        pm.expect(body.correlationId).to.be.a('string');",
+                  "    });",
+                  "}",
+                  "problem(404, 'event-not-found');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "text/event-stream"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/events/no-such-event/availability/stream",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "events",
+                "no-such-event",
+                "availability",
+                "stream"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Comprar en un evento inexistente (404)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('idempotencyKey', 'pm-' + pm.variables.replaceIn('{{$guid}}'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 404', function () { pm.response.to.have.status(404); });",
+                  "",
+                  "function problem(status, type) {",
+                  "    pm.test('problem+json ' + type, function () {",
+                  "        pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json');",
+                  "        const body = pm.response.json();",
+                  "        pm.expect(body.status).to.eql(status);",
+                  "        pm.expect(body.type).to.eql('urn:ticketflow:problem:' + type);",
+                  "        pm.expect(body.correlationId).to.be.a('string');",
+                  "    });",
+                  "}",
+                  "problem(404, 'event-not-found');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "value": "{{idempotencyKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/orders",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "orders"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"eventId\":\"no-such-event\",\"quantity\":1}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Cortesías (admin)",
+      "item": [
+        {
+          "name": "Cortesía sin X-Admin-Key (401 o 403)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.set('compKey', 'pm-' + pm.variables.replaceIn('{{$guid}}'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const adminConfigured = !!pm.variables.get('adminKey');",
+                  "// Con ADMIN_API_KEY definida en el servidor: 401 admin-unauthorized. Sin ella: 403 admin-disabled.",
+                  "// Aquí se asume que la variable adminKey de Postman coincide con la del servidor.",
+                  "const expected = adminConfigured ? [401, 'admin-unauthorized'] : [403, 'admin-disabled'];",
+                  "pm.test('status ' + expected[0], function () { pm.response.to.have.status(expected[0]); });",
+                  "",
+                  "function problem(status, type) {",
+                  "    pm.test('problem+json ' + type, function () {",
+                  "        pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json');",
+                  "        const body = pm.response.json();",
+                  "        pm.expect(body.status).to.eql(status);",
+                  "        pm.expect(body.type).to.eql('urn:ticketflow:problem:' + type);",
+                  "        pm.expect(body.correlationId).to.be.a('string');",
+                  "    });",
+                  "}",
+                  "problem(expected[0], expected[1]);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "value": "{{compKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/events/{{eventId}}/complimentary",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "events",
+                "{{eventId}}",
+                "complimentary"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"quantity\":2,\"reason\":\"Postman VIP guests\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            },
+            "description": "Cuenta como intento fallido en el presupuesto de X-Admin-Key (5 de golpe, 1 cada 20 s)."
+          }
+        },
+        {
+          "name": "Cortesía de 2 entradas (201)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.variables.get('adminKey')) {",
+                  "    console.warn('adminKey vacía: se omite la emisión de cortesías (defina adminKey = ADMIN_API_KEY del servidor)');",
+                  "    pm.execution.skipRequest();",
+                  "}"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 201', function () { pm.response.to.have.status(201); });",
+                  "",
+                  "const body = pm.response.json();",
+                  "pm.test('COMPLIMENTARY con Location', function () {",
+                  "    pm.expect(body.status).to.eql('COMPLIMENTARY');",
+                  "    pm.expect(body.quantity).to.eql(2);",
+                  "    pm.expect(pm.response.headers.get('Location')).to.eql('/orders/' + body.orderId);",
+                  "});",
+                  "pm.collectionVariables.set('compOrderId', body.orderId);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "value": "{{compKey}}"
+              },
+              {
+                "key": "X-Admin-Key",
+                "value": "{{adminKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/events/{{eventId}}/complimentary",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "events",
+                "{{eventId}}",
+                "complimentary"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"quantity\":2,\"reason\":\"Postman VIP guests\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Replay de la cortesía (201, mismo orderId)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.variables.get('adminKey')) { pm.execution.skipRequest(); }"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 201', function () { pm.response.to.have.status(201); });",
+                  "",
+                  "pm.test('mismo orderId', function () {",
+                  "    pm.expect(pm.response.json().orderId).to.eql(pm.collectionVariables.get('compOrderId'));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Idempotency-Key",
+                "value": "{{compKey}}"
+              },
+              {
+                "key": "X-Admin-Key",
+                "value": "{{adminKey}}"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/events/{{eventId}}/complimentary",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "events",
+                "{{eventId}}",
+                "complimentary"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\"quantity\":2,\"reason\":\"Postman VIP guests\"}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Disponibilidad con cortesías",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.variables.get('adminKey')) { pm.execution.skipRequest(); }"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+                  "",
+                  "pm.test('2 cortesías, ninguna cuenta como venta', function () {",
+                  "    const a = pm.response.json();",
+                  "    pm.expect(a.sold).to.eql(3);",
+                  "    pm.expect(a.complimentary).to.eql(2);",
+                  "    pm.expect(a.available).to.eql(95);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/events/{{eventId}}/availability",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "events",
+                "{{eventId}}",
+                "availability"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "5. Operación (puerto de gestión 8081)",
+      "item": [
+        {
+          "name": "Liveness",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('UP', function () { pm.expect(pm.response.json().status).to.eql('UP'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{managementUrl}}/actuator/health/liveness",
+              "host": [
+                "{{managementUrl}}"
+              ],
+              "path": [
+                "actuator",
+                "health",
+                "liveness"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Readiness (DynamoDB y SQS)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+                  "pm.test('UP', function () { pm.expect(pm.response.json().status).to.eql('UP'); });"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{managementUrl}}/actuator/health/readiness",
+              "host": [
+                "{{managementUrl}}"
+              ],
+              "path": [
+                "actuator",
+                "health",
+                "readiness"
+              ]
+            }
+          }
+        },
+        {
+          "name": "Métricas Prometheus",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 200', function () { pm.response.to.have.status(200); });",
+                  "",
+                  "pm.test('series de negocio presentes', function () {",
+                  "    const text = pm.response.text();",
+                  "    pm.expect(text).to.include('ticketflow_orders_placed_total');",
+                  "    pm.expect(text).to.include('ticketflow_orders_sold_total');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{managementUrl}}/actuator/prometheus",
+              "host": [
+                "{{managementUrl}}"
+              ],
+              "path": [
+                "actuator",
+                "prometheus"
+              ]
+            }
+          }
+        },
+        {
+          "name": "El puerto público no sirve /actuator (404)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('status is 404', function () { pm.response.to.have.status(404); });",
+                  "",
+                  "function problem(status, type) {",
+                  "    pm.test('problem+json ' + type, function () {",
+                  "        pm.expect(pm.response.headers.get('Content-Type')).to.include('application/problem+json');",
+                  "        const body = pm.response.json();",
+                  "        pm.expect(body.status).to.eql(status);",
+                  "        pm.expect(body.type).to.eql('urn:ticketflow:problem:' + type);",
+                  "        pm.expect(body.correlationId).to.be.a('string');",
+                  "    });",
+                  "}",
+                  "problem(404, 'not-found');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/actuator/health",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "actuator",
+                "health"
+              ]
+            }
+          }
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "baseUrl",
+      "value": "http://localhost:8080",
+      "type": "string"
+    },
+    {
+      "key": "managementUrl",
+      "value": "http://localhost:8081",
+      "type": "string"
+    },
+    {
+      "key": "adminKey",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "eventId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "orderId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "idempotencyKey",
+      "value": "",
+      "type": "string"
+    }
+  ]
+}

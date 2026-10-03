@@ -23,12 +23,21 @@ No forma parte de `./init.sh` (necesita Docker y red), pero es obligatoria en CI
 | Integración | Testcontainers (LocalStack) | Adaptadores DynamoDB y SQS reales |
 | Caso de uso extremo a extremo | Testcontainers + adaptadores reales | Los casos de uso son compatibles con el comportamiento real de los adaptadores (los mocks no detectan contratos incompatibles) |
 | Concurrencia | `StepVerifier` + `Flux.merge`/`parallel` | N compras simultáneas nunca sobrevenden |
+| Contrato HTTP de extremo a extremo (manual, F-025) | Newman (Docker) sobre la pila de compose | La colección `requests/` recorre la API real y aserta códigos y cuerpos; no forma parte de `./init.sh` |
 
 Las pruebas de integración se etiquetan `@Tag("integration")` y requieren Docker; en CI se ejecutan siempre: el workflow define `INCLUDE_INTEGRATION=true`, que `init.sh` traduce a `-PincludeIntegration`. En local, `INCLUDE_INTEGRATION=true ./init.sh` las activa (requiere Docker); sin la variable se excluyen.
 
 ## Cobertura
 
 - Mínimo 90% de líneas (JaCoCo). Se excluyen solo clases de arranque (`*Application`) y configuración trivial.
+
+## Documentación y colección de peticiones (F-025)
+
+Se verifican a mano (no están en `./init.sh`, necesitan la pila de compose y Docker):
+
+- **Diagramas Mermaid** de `docs/architecture.md`: cada bloque ` ```mermaid ` debe renderizar sin errores con `mermaid-cli` (`mmdc`) en Docker; GitHub usa el mismo motor. Un fallo típico es usar una palabra clave no soportada (p. ej. `SK` como clave en `erDiagram`: solo valen `PK`, `FK` y `UK`).
+- **Colección de Postman**: con la pila arriba (`ADMIN_API_KEY=<clave> docker-compose up --build -d --wait`), `ADMIN_API_KEY=<clave> ./requests/run-newman.sh` debe terminar con 0 fallos (31 peticiones, 63 aserciones). `./requests/demo.sh` debe terminar con `Demo finished OK`. Ver README, «Colección de peticiones y demo».
+- **Clon limpio**: clonar el repositorio en un directorio temporal y seguir el «Inicio rápido» del README literalmente.
 
 ## Suite de concurrencia de extremo a extremo (F-022)
 

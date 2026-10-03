@@ -77,6 +77,45 @@ docker build -t ticketflow:local . && docker run --rm -v /var/run/docker.sock:/v
   aquasec/trivy:0.75.0 image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 ticketflow:local
 ```
 
+## Controles de la aplicación (detalle)
+
+Implementados en F-023 (parte 1). Resumen de diseño en [`architecture.md`](architecture.md#endurecimiento-de-la-aplicación-f-023-parte-1).
+
+### Rate limiting por cliente
+
+`RateLimitWebFilter` aplica un **token bucket por cliente** a las rutas de escritura `POST /orders`, `POST /events` y `POST /events/{id}/complimentary` (comparten el mismo bucket por cliente; las lecturas no se limitan). Al agotarse responde `429` `rate-limit-exceeded` con `Retry-After` calculado del propio bucket (segundos hasta el siguiente token); la petición rechazada no llega a leer el body ni a tocar DynamoDB/SQS. Además, los intentos **fallidos** de `X-Admin-Key` (clave ausente o incorrecta) tienen un presupuesto mucho más estricto por cliente: agotado, el cliente recibe `429` **sin que se compare la clave** (ni la correcta se acepta hasta que se rellene un token), lo que frena la fuerza bruta. El caso «sin clave configurada» (`403`) no es una adivinanza y no cuenta.
+
+Propiedades `ticketflow.rate-limit.*` (variables `TICKETFLOW_RATE_LIMIT_*`; activo por defecto): tabla completa en el [README](../README.md#referencia-de-configuración).
+
+- **Identidad del cliente**: la dirección remota del socket. `X-Forwarded-For` **solo** se tiene en cuenta con `trust-forwarded-for=true`, y entonces se usa la **última** entrada (la que añade el proxy de confianza; las anteriores las controla el cliente), que debe ser una IP literal válida (si no, se usa el socket; nunca se resuelven nombres). **Precaución con proxies**: tras un proxy/balanceador sin esta opción todos los clientes parecen la misma IP (comparten bucket); con la opción activa **sin** un proxy delante cualquier cliente podría elegir su identidad. Actívela solo con exactamente un proxy de confianza que añada la dirección de su par y con la app inalcanzable sin él.
+- **Por instancia**: el estado vive en memoria de cada instancia; con N réplicas el presupuesto efectivo es N veces el configurado. Si la tabla de clientes se llena se expulsa el menos valioso, así que quien rote muchas IP puede reiniciar presupuestos ajenos. Por eso un despliegue real **necesita además una capa de borde** (API Gateway con throttling por clave/IP, AWS WAF con reglas de tasa, CloudFront…): el limitador de la aplicación es la última línea, no la única. Esto se retomará en la documentación de AWS (F-026).
+
+### Límites de entrada y de recursos
+
+| Límite | Valor | Respuesta |
+|--------|-------|-----------|
+| Tamaño del body | `spring.http.codecs.max-in-memory-size` = 32 KB | `413` `payload-too-large` (problem+json) |
+| Entradas por orden | `ticketflow.orders.max-quantity` = 10 | `400` `validation-error` (`quantity`) |
+| `Idempotency-Key` | 16-128 caracteres `[A-Za-z0-9._:-]` | `400` `invalid-idempotency-key` |
+| Ids de ruta (`/events/{id}`, `/orders/{id}`...) | 1-64 caracteres `[A-Za-z0-9._-]` | `404` `not-found` genérico, sin repetir el valor |
+
+Las cabeceras HTTP las limita Netty (8 KB por defecto).
+
+### Seguridad de los reintentos
+
+- **Replay de una reserva sin mensaje**: si el primer intento murió (o el cliente se desconectó) entre la transacción y la publicación, la orden queda `RESERVED` sin mensaje. Un reintento con la misma `Idempotency-Key` y el mismo payload **republica el mensaje** (mejor esfuerzo: un fallo al republicar no convierte el replay en error ni libera nada; se registra sin detalles internos). Los duplicados son seguros porque el consumer es idempotente. Una orden que ya pasó de `RESERVED` no se republica.
+- **Desconexión del cliente**: la cadena «reservar -> publicar -> compensar si falla» se **desacopla de la suscripción de la petición** (`Detached`, un `Mono.cache()` que fija el contexto de Reactor, por lo que el correlation id sigue viajando): si el cliente cancela a medias, la publicación termina igualmente (o la compensación libera la reserva), de modo que nunca queda inventario reservado sin mensaje. Lo mismo para las cortesías.
+
+### Cabeceras de seguridad y secretos
+
+- `SecurityHeadersWebFilter` añade a **toda** respuesta (éxitos y errores): `X-Content-Type-Options: nosniff`, `Cache-Control: no-store`, `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY`, `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'` y `Cross-Origin-Resource-Policy: same-origin`. `Strict-Transport-Security` no se envía a propósito: el TLS se termina en el borde.
+- Los objetos de configuración con secretos (`DynamoDbProperties`, `SqsProperties`, `AdminKeyGuard`) **nunca los imprimen** en `toString()` (claves enmascaradas como `****`, endpoints reducidos a esquema/host/puerto). Los logs de arranque no contienen credenciales (verificado con `docker-compose logs app`).
+- Las credenciales estáticas de AWS (`access-key-id`/`secret-access-key`) **solo** se usan si ambas están definidas (LocalStack/DynamoDB Local con valores ficticios); en cualquier despliegue real debe aplicar la cadena por defecto de AWS (rol IAM).
+
+### Ciclo de vida (consumer y scheduler)
+
+`SqsOrderConsumer` y `ReservationExpirationScheduler` usan un **token de generación** por arranque: un `stop()` seguido de `start()` mientras el ciclo anterior aún drena ya no deja dos bucles vivos (antes el viejo seguía repitiendo mientras `running` volvía a ser `true`).
+
 ## Endurecimiento de contenedores
 
 **Imagen de la app** (`Dockerfile`): build multi-etapa; el runtime es `gcr.io/distroless/java25-debian13:nonroot` fijado por digest: solo la JRE, **sin shell, sin gestor de paquetes, sin curl**, usuario no root (`nonroot`, uid 65532). La etapa de build (JDK) no llega a la imagen final. Banderas de la JVM conscientes del contenedor: `-XX:MaxRAMPercentage=70` (el heap se calcula del límite de memoria del cgroup) y `-XX:+ExitOnOutOfMemoryError` (ante un OOM el proceso muere y `restart` lo relanza en vez de quedar degradado), `-XX:-UsePerfData` (sin ficheros en `/tmp`). `HEALTHCHECK` sin paquetes extra: una clase Java mínima (`docker/healthcheck/Healthcheck.java`, compilada en la etapa de build) consulta `/actuator/health/liveness` **en el puerto de gestión** (`MANAGEMENT_SERVER_PORT`, `8081`) y sale con 0 solo si responde 200. El puerto `8081` se publica en docker-compose solo en `127.0.0.1:8081`: el endpoint de Prometheus no tiene autenticación, así que en un despliegue real debe quedar en una red privada o detrás del control de acceso del borde (F-026).
@@ -112,7 +151,7 @@ Aceptadas conscientemente y documentadas; varias se resuelven en la capa de bord
 5. **401 frente a 403 revela si hay clave configurada**: sin `ADMIN_API_KEY` las rutas admin responden `403 admin-disabled`; con clave configurada y una incorrecta, `401`. Quien sondee puede saber si el servidor tiene una clave. Aceptable para local/desarrollo; no da ninguna pista sobre el valor.
 6. **Actor de auditoría fijo**: las cortesías se auditan con el actor fijo `complimentary-issuance`; con autenticación real debe llevar la identidad del llamante (F-026).
 7. **Rechazos Netty sin correlation id**: `400` vacío para URL/cabeceras malformadas a nivel de servidor (ver tabla).
-8. **`X-Forwarded-For`**: solo con `trust-forwarded-for=true` y exactamente un proxy de confianza (ver README, «Rate limiting por cliente»); mal configurado permite elegir la identidad.
+8. **`X-Forwarded-For`**: solo con `trust-forwarded-for=true` y exactamente un proxy de confianza (ver «Controles de la aplicación», «Rate limiting por cliente»); mal configurado permite elegir la identidad.
 9. **Imágenes de terceros** (DynamoDB Local, LocalStack) solo para desarrollo, sin escaneo en CI ni actualización automática; LocalStack se queda en 4.14.0 (las versiones 2026.x exigen token).
 10. **Endpoint de Prometheus sin autenticación**: `/actuator/prometheus` (puerto de gestión `8081`) no pide credenciales; la protección es de red (loopback en local, red privada o control de acceso del borde en un despliegue real). Solo expone métricas agregadas de cardinalidad fija (sin ids, claves ni direcciones de clientes) y `health` sin detalles, pero revela versiones de JVM/librerías y volumen de tráfico a quien lo alcance. Nunca publicarlo en `0.0.0.0`.
 
