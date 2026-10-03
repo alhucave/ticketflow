@@ -54,6 +54,8 @@ services:
       TICKETFLOW_SQS_ORDERS_QUEUE_NAME: ${ORDERS_QUEUE_NAME:-orders}
       # Order consumer (ProcessOrderUseCase); the queue has a redrive policy to the DLQ (init-queues.sh).
       TICKETFLOW_SQS_CONSUMER_ENABLED: "true"
+      # Secret for admin routes (X-Admin-Key). No default on purpose: unset/empty disables them (403).
+      ADMIN_API_KEY: ${ADMIN_API_KEY:-}
       # Reservation-expiration job (ReleaseExpiredReservationsUseCase), every minute by default.
       TICKETFLOW_EXPIRATION_ENABLED: "true"
       # Create DynamoDB tables and GSIs at startup (idempotent).

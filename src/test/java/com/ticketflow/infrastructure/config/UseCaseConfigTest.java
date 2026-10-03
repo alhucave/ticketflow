@@ -35,6 +35,8 @@ class UseCaseConfigTest {
         assertThat(config.getOrderStatusUseCase(mock(OrderRepository.class))).isNotNull();
         assertThat(config.processOrderUseCase(mock(OrderRepository.class), mock(OrderFulfillmentRepository.class),
                 mock(OrderPlacementRepository.class), config.clock())).isNotNull();
+        assertThat(config.issueComplimentaryUseCase(mock(OrderPlacementRepository.class),
+                mock(OrderRepository.class), config.clock())).isNotNull();
         assertThat(config.releaseExpiredReservationsUseCase(mock(OrderRepository.class),
                 mock(OrderPlacementRepository.class), config.clock(),
                 new ExpirationProperties(false, Duration.ofMinutes(1), Duration.ZERO, 2, 10, Duration.ZERO)))

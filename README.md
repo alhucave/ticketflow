@@ -115,6 +115,7 @@ API reactiva (Spring WebFlux, `Mono`/`Flux`) de eventos, compras asíncronas y d
 | `GET` | `/events` | `200` lista de eventos **sin inventario** (para los contadores usar `GET /events/{id}`) |
 | `POST` | `/orders` | Cabecera obligatoria `Idempotency-Key`; `202` inmediato + `Location: /orders/{orderId}` + `{orderId, status, reservationExpiresAt}` |
 | `GET` | `/orders/{id}` | `200` estado de la orden (consultable en cualquier momento); `404` si no existe |
+| `POST` | `/events/{id}/complimentary` | **Admin** (cabecera `X-Admin-Key`) + `Idempotency-Key`; body `{quantity (1-1000), reason?}`; `201` + `Location: /orders/{orderId}` + `{orderId, eventId, quantity, status: "COMPLIMENTARY"}` |
 | `GET` | `/events/{id}/availability` | `200` instantánea `{available, reserved, pendingConfirmation, sold, complimentary, capacity}`; `404` si el evento no existe |
 | `GET` | `/events/{id}/availability/stream` | `text/event-stream`: emite el valor actual de inmediato y después cada cambio; `404` JSON si el evento no existe |
 
@@ -159,6 +160,30 @@ curl -N -H 'Accept: text/event-stream' http://localhost:8080/events/EVENT_ID/ava
 # data:{"available":20,"reserved":0,"pendingConfirmation":0,"sold":0,"complimentary":0,"capacity":20}
 #
 # data:{"available":18,"reserved":0,"pendingConfirmation":0,"sold":2,"complimentary":0,"capacity":20}
+```
+
+### Cortesías (`POST /events/{id}/complimentary`, solo admin)
+
+Mueve entradas `AVAILABLE -> COMPLIMENTARY` (estado final, **nunca contado como venta**: el contador `complimentary` es independiente de `sold` en inventario, disponibilidad y `GET /events/{id}`). No puede superar el disponible (`409 insufficient-inventory`). Inventario, orden `COMPLIMENTARY` y auditoría (`AVAILABLE -> COMPLIMENTARY`, actor `complimentary-issuance`, `reason` opcional) son un único `TransactWriteItems`; no hay cola ni reserva que expire, y el barrido de expiración y el consumer nunca la tocan. `GET /orders/{orderId}` la muestra como `COMPLIMENTARY`.
+
+- **Seguridad**: la ruta exige la cabecera `X-Admin-Key`, comparada en tiempo constante con el secreto `ticketflow.admin.api-key` (variable `ADMIN_API_KEY`). **Seguro por defecto**: sin clave configurada (o vacía) el endpoint está deshabilitado y responde `403` (`admin-disabled`) a todo; clave ausente o incorrecta -> `401` (`admin-unauthorized`) con texto fijo, sin pistas. La clave nunca se registra ni se versiona. En local, `docker-compose.yml` solo reenvía `ADMIN_API_KEY` (sin valor por defecto): defínala en su `.env` ignorado por git (genere una clave aleatoria, p. ej. con `openssl rand -hex 32`; ver `.env.example`) o en el entorno del shell. En despliegues reales use un gestor de secretos. El filtro `AdminKeyWebFilter` es reutilizable: añada el patrón de otra ruta admin a `ADMIN_ROUTES`.
+- **Idempotencia**: `Idempotency-Key` obligatoria (misma validación que `POST /orders`). El `orderId` se deriva de la clave en un espacio de nombres propio (una cortesía y una compra con la misma clave nunca colisionan). Misma clave y mismo payload (`quantity`, `reason`) -> `201` con el mismo body y `Location` (se elige `201`, como `POST /orders` repite `202`); distinto payload -> `409 idempotency-key-reused`.
+- `reason` (opcional, máx. 200 caracteres, sin caracteres de control) se guarda como dato en la auditoría; nunca se devuelve ni debe renderizarse como HTML.
+
+```bash
+# export ADMIN_API_KEY=$(openssl rand -hex 32)   # clave aleatoria solo para desarrollo local; no la versione
+curl -i -X POST http://localhost:8080/events/EVENT_ID/complimentary -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: comp-1' -H "X-Admin-Key: $ADMIN_API_KEY" -d '{"quantity":2,"reason":"VIP guests"}'
+# HTTP/1.1 201 Created
+# Location: /orders/9b98e91c-ea42-5658-829a-8ac051907723
+# {"orderId":"9b98e91c-...","eventId":"EVENT_ID","quantity":2,"status":"COMPLIMENTARY"}
+
+curl -s http://localhost:8080/events/EVENT_ID/availability
+# {"available":8,"reserved":0,"pendingConfirmation":0,"sold":0,"complimentary":2,"capacity":10}
+
+# Sin cabecera o con clave incorrecta -> 401; sin clave configurada en el servidor -> 403; más que el disponible -> 409
+# {"...","status":401,"title":"Unauthorized","type":"urn:ticketflow:problem:admin-unauthorized"}
+# {"...","status":403,"title":"Admin access disabled","type":"urn:ticketflow:problem:admin-disabled"}
 ```
 
 ### Manejo de errores y correlation id

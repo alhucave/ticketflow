@@ -8,6 +8,7 @@ import com.ticketflow.domain.port.OrderFulfillmentRepository;
 import com.ticketflow.domain.port.OrderPlacementRepository;
 import com.ticketflow.domain.port.OrderQueuePublisher;
 import com.ticketflow.domain.port.OrderRepository;
+import com.ticketflow.usecase.IssueComplimentaryUseCase;
 import com.ticketflow.usecase.ReleaseExpiredReservationsUseCase;
 import com.ticketflow.usecase.RequestPurchaseUseCase;
 import com.ticketflow.usecase.CreateEventUseCase;
@@ -89,5 +90,11 @@ public class UseCaseConfig {
             Clock clock,
             @Value("${ticketflow.reservation.ttl:PT10M}") Duration reservationTtl) {
         return new RequestPurchaseUseCase(placement, orders, queue, clock, reservationTtl);
+    }
+
+    @Bean
+    IssueComplimentaryUseCase issueComplimentaryUseCase(
+            OrderPlacementRepository placement, OrderRepository orders, Clock clock) {
+        return new IssueComplimentaryUseCase(placement, orders, clock);
     }
 }

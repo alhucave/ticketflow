@@ -33,7 +33,8 @@ import software.amazon.awssdk.services.dynamodb.model.Update;
  * {@code TransactWriteItems}, so inventory, order and audit trail change together or not at all.
  *
  * <p>Items are ordered so that cancellation reasons can be mapped by index. Placement:
- * {@code [0] inventory update, [1] order put, [2] audit put}. Release:
+ * {@code [0] inventory update, [1] order put, [2] audit put} (complimentary issuance uses the same
+ * layout, moving {@code available -> complimentary}). Release:
  * {@code [0] order update, [1] audit put, [2] inventory update}.
  *
  * <p>Transient failures (throttling, {@code TransactionConflict} between concurrent transactions on
@@ -60,6 +61,7 @@ public class DynamoDbOrderPlacementRepository implements OrderPlacementRepositor
     private static final String AVAILABLE = "available";
     private static final String RESERVED = "reserved";
     private static final String PENDING_CONFIRMATION = "pendingConfirmation";
+    private static final String COMPLIMENTARY = "complimentary";
 
     private final DynamoDbAsyncClient client;
     private final Retry retry;
@@ -90,12 +92,29 @@ public class DynamoDbOrderPlacementRepository implements OrderPlacementRepositor
             TransactWriteItemsRequest request = TransactWriteItemsRequest.builder()
                     .transactItems(
                             moveInventory(order.eventId(), order.quantity().value(), AVAILABLE, RESERVED),
-                            TransactWriteItem.builder().put(Put.builder()
-                                    .tableName(DynamoDbTables.ORDERS)
-                                    .item(DynamoDbOrderRepository.toItem(order))
-                                    .conditionExpression("attribute_not_exists(orderId)")
-                                    .returnValuesOnConditionCheckFailure(ReturnValuesOnConditionCheckFailure.ALL_OLD)
-                                    .build()).build(),
+                            putOrder(order),
+                            putAudit(entry))
+                    .build();
+            return execute(request).thenReturn(order)
+                    .onErrorMap(TransactionCanceledException.class, error -> translatePlacement(error, order));
+        });
+    }
+
+    @Override
+    public Mono<Order> issueComplimentary(Order order, String actor, String reason) {
+        return Mono.defer(() -> {
+            if (order.status() != TicketStatus.COMPLIMENTARY) {
+                return Mono.error(new IllegalArgumentException(
+                        "A complimentary order must be COMPLIMENTARY but was " + order.status()));
+            }
+            // Validates actor, reason and the AVAILABLE -> COMPLIMENTARY transition before touching DynamoDB.
+            OrderAuditEntry entry = new OrderAuditEntry(order.id(), order.createdAt(),
+                    TicketStatus.AVAILABLE, TicketStatus.COMPLIMENTARY, actor, reason);
+            // Same item layout as placeReservation: [0] inventory, [1] order, [2] audit.
+            TransactWriteItemsRequest request = TransactWriteItemsRequest.builder()
+                    .transactItems(
+                            moveInventory(order.eventId(), order.quantity().value(), AVAILABLE, COMPLIMENTARY),
+                            putOrder(order),
                             putAudit(entry))
                     .build();
             return execute(request).thenReturn(order)
@@ -161,6 +180,15 @@ public class DynamoDbOrderPlacementRepository implements OrderPlacementRepositor
                         .returnValuesOnConditionCheckFailure(ReturnValuesOnConditionCheckFailure.ALL_OLD)
                         .build())
                 .build();
+    }
+
+    private static TransactWriteItem putOrder(Order order) {
+        return TransactWriteItem.builder().put(Put.builder()
+                .tableName(DynamoDbTables.ORDERS)
+                .item(DynamoDbOrderRepository.toItem(order))
+                .conditionExpression("attribute_not_exists(orderId)")
+                .returnValuesOnConditionCheckFailure(ReturnValuesOnConditionCheckFailure.ALL_OLD)
+                .build()).build();
     }
 
     static TransactWriteItem putAudit(OrderAuditEntry entry) {
