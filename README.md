@@ -161,7 +161,37 @@ curl -N -H 'Accept: text/event-stream' http://localhost:8080/events/EVENT_ID/ava
 # data:{"available":18,"reserved":0,"pendingConfirmation":0,"sold":2,"complimentary":0,"capacity":20}
 ```
 
-Los errores siguen RFC 7807 (`application/problem+json`) con `type`, `title`, `status`, `detail`; los fallos de validación añaden `violations` (`field`, `message`). Cubiertos: `400` (validación, JSON mal formado, evento inválido), `404` (evento u orden inexistente), `409` (evento duplicado, conflictos de compras) y `503` (orden no encolada). Nunca se exponen trazas ni mensajes internos.
+### Manejo de errores y correlation id
+
+Todo error (de dominio, de validación, de Spring, o inesperado) usa **una sola forma** RFC 7807 (`application/problem+json`): `type` (`urn:ticketflow:problem:*`), `title`, `status`, `detail`, `instance` (`urn:ticketflow:request:<correlationId>`), `correlationId` y, en validación, `violations` (`field`, `message`). Los mensajes de error inesperados, nombres de clase y trazas **nunca** se envían al cliente: el `500` lleva un texto fijo y el error real se registra en el servidor con traza y `correlationId`. Lo gestionan `ApiExceptionHandler` (único traductor) y `ProblemWebExceptionHandler` (errores fuera de los controladores: ruta inexistente, método no permitido, filtros).
+
+| Estado | `type` (`urn:ticketflow:problem:…`) | Cuándo |
+|--------|-------------------------------------|--------|
+| `400` | `validation-error` | Body con campos inválidos (añade `violations`) |
+| `400` | `malformed-request` | JSON mal formado o tipos/valores ilegibles |
+| `400` | `invalid-event` | Regla de negocio del evento (p. ej. fecha pasada) |
+| `400` | `invalid-idempotency-key` | `Idempotency-Key` ausente o inválida |
+| `400` | `bad-request` | Otro error 400 del framework |
+| `404` | `event-not-found`, `order-not-found` | El evento o la orden no existe |
+| `404` | `not-found` | Ruta inexistente (sin detalles ni la ruta pedida) |
+| `405` | `method-not-allowed` | Método HTTP no soportado; conserva la cabecera `Allow` |
+| `406` | `not-acceptable` | `Accept` no satisfacible |
+| `409` | `event-already-exists` | Evento duplicado |
+| `409` | `insufficient-inventory` | No hay entradas suficientes |
+| `409` | `idempotency-key-reused` | Misma clave con otro payload |
+| `409` | `idempotent-order-not-active` | La orden de esa clave ya fue liberada: usar clave nueva |
+| `409` | `concurrent-modification` | Se perdió una carrera de bloqueo optimista del inventario; contención transitoria, **no se aplicó** nada. Lleva `Retry-After: 1` y es seguro reintentar (las compras llevan `Idempotency-Key`) |
+| `409` | `invalid-state-transition`, `order-status-conflict`, `order-already-exists` | Conflictos de estado de la orden |
+| `410` | `reservation-expired` | La reserva expiró y ya no se puede confirmar |
+| `413` | `payload-too-large` | Body por encima del límite del servidor |
+| `415` | `unsupported-media-type` | `Content-Type` no soportado |
+| `429` | `rate-limit-exceeded` | Demasiadas peticiones; lleva `Retry-After` (segundos) cuando se conoce (lo lanzará el rate limiter, F-023) |
+| `500` | `internal-error` | Cualquier error no previsto (texto fijo) |
+| `503` | `order-enqueue-failed` | No se pudo encolar la orden: reintentar con una `Idempotency-Key` **nueva** |
+
+Por qué `409` y no `503` para la contención de inventario: la petición chocó con un cambio concurrente y no se aplicó; `503` se reserva para "el servicio no puede aceptar trabajo" (cola caída). **Reintentos**: la capa web no reintenta nada (no puede saber si una petición es repetible); los reintentos con `Retry.backoff` viven en los adaptadores y solo para errores transitorios (p. ej. el publisher SQS), y al cliente se le indica cuándo reintentar con `Retry-After`.
+
+**Correlation id.** Cada petición lleva un `X-Correlation-Id`: se acepta el del cliente solo si tiene 1-64 caracteres `[A-Za-z0-9._-]`; si falta o es inseguro (vacío, largo, con saltos de línea u otros caracteres) se ignora y se genera un UUID (nunca se devuelve ni se registra el valor inseguro). Se devuelve en la cabecera `X-Correlation-Id` de **todas** las respuestas, en la propiedad `correlationId` de cada error, aparece en cada línea de log de la petición (`%X{correlationId}` en el patrón de `application.yml`; JSON estructurado llegará con F-024) y viaja como atributo `correlationId` del mensaje SQS en `POST /orders`.
 
 ```bash
 # Crear un evento (fecha futura) -> 201 + Location

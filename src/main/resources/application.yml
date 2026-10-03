@@ -10,3 +10,7 @@ ticketflow:
   sqs:
     # Overridable from the environment; endpoint/credentials are set only for local development.
     orders-queue-name: ${ORDERS_QUEUE_NAME:orders}
+logging:
+  pattern:
+    # %X{correlationId} is filled from the Reactor context (see CorrelationContextPropagation); "-" outside a request.
+    correlation: "[%X{correlationId:-}] "
