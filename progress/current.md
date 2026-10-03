@@ -1,7 +1,5 @@
 # Estado actual
 
-Feature en curso: F-022 — concurrency-tests
-Plan:
-- Soporte reutilizable `com.ticketflow.concurrency.ConcurrencySupport` + `Reconciliation` (cruza inventory/orders/order_audit).
-- 4 clases IT (contexto completo, RANDOM_PORT, DynamoDB Local + LocalStack reales): compras concurrentes (1,2,3,8,9), redelivery (4,7), inyeccion de fallos (5), expiracion bajo carga (6).
-- Documentar en docs/verification.md y README; informe en progress/impl_concurrency-tests.md.
+Feature en curso: ninguna
+Ultimas completadas: F-001 a F-024 (APPROVED)
+Siguiente: F-025 (docs-and-requests), F-026 (AWS docs, ultima fase)
