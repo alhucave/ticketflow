@@ -325,7 +325,7 @@
     "id": "F-019",
     "name": "web-orders-availability-api",
     "phase": 7,
-    "status": "in_progress",
+    "status": "done",
     "depends_on": [
       "F-011",
       "F-012",
@@ -388,7 +388,7 @@
     ],
     "issue": 22,
     "title": "End-to-end concurrency and consistency tests",
-    "description": "Integration tests that fire many parallel purchase requests over limited capacity and assert no oversell, correct counters, no duplicate orders for the same Idempotency-Key and correct release after expiry. NOTE (from F-014 review): audit sort keys are <timestamp>#<uuid>, so two entries in the same instant order randomly and clock skew between nodes could reorder them; the integration tests use a clock advancing 1 ms per read. Consider asserting audit ORDER only where the timestamps are strictly increasing, and document the limitation.",
+    "description": "Integration tests that fire many parallel purchase requests over limited capacity and assert no oversell, correct counters, no duplicate orders for the same Idempotency-Key and correct release after expiry. NOTE (from F-014 review): audit sort keys are <timestamp>#<uuid>, so two entries in the same instant order randomly and clock skew between nodes could reorder them; the integration tests use a clock advancing 1 ms per read. Consider asserting audit ORDER only where the timestamps are strictly increasing, and document the limitation. NOTE (from F-019 review): add an end-to-end test for POST /orders with a non-existent eventId (the 404 mapping exists but is untested end to end).",
     "acceptance": [
       "N parallel requests over capacity C never produce sold + reserved > C",
       "Counter invariant holds at the end of every scenario",
@@ -406,7 +406,7 @@
     ],
     "issue": 23,
     "title": "Security hardening",
-    "description": "Secrets only via env vars, request size limits, per-client rate limiting on POST /orders, max quantity per order, input validation, idempotency protection against malicious retries, dependency vulnerability scan in CI, and non-root, minimal runtime image. NOTE (from F-012 review): scope the Idempotency-Key per principal/client so one client cannot collide with or probe another's orders (OrderId is derived from the key alone); do not cancel the purchase pipeline on client disconnect (e.g. detach the reserve/publish chain from the request subscription). NOTE (from F-017 review): SqsOrderConsumer and ReservationExpirationScheduler share a `running` flag across runs; a stop() followed by start() while a previous drain/sweep is still running can overlap the old loop with the new one (data-safe thanks to conditional writes, but wasteful). Fix both lifecycles with a per-start generation token captured in the repeat predicate, and add a restart-during-drain test.",
+    "description": "Secrets only via env vars, request size limits, per-client rate limiting on POST /orders, max quantity per order, input validation, idempotency protection against malicious retries, dependency vulnerability scan in CI, and non-root, minimal runtime image. NOTE (from F-012 review): scope the Idempotency-Key per principal/client so one client cannot collide with or probe another's orders (OrderId is derived from the key alone); do not cancel the purchase pipeline on client disconnect (e.g. detach the reserve/publish chain from the request subscription). NOTE (from F-017 review): SqsOrderConsumer and ReservationExpirationScheduler share a `running` flag across runs; a stop() followed by start() while a previous drain/sweep is still running can overlap the old loop with the new one (data-safe thanks to conditional writes, but wasteful). Fix both lifecycles with a per-start generation token captured in the repeat predicate, and add a restart-during-drain test. NOTE (from F-019 review): if a client disconnects after the reservation transaction and before the message is published, the order stays RESERVED with no queue message and a replay of the same Idempotency-Key returns 202 WITHOUT republishing until the reservation expires (the expiry scheduler is off by default outside docker-compose). Fix: on a replay whose existing order is still RESERVED, republish the message (duplicates are safe: the consumer is idempotent) and/or detach the reserve+publish chain from the request subscription so a disconnect cannot cancel it; add a test that simulates the disconnect.",
     "acceptance": [
       "Rate limit returns 429 when exceeded (tested)",
       "Max quantity per order enforced",
