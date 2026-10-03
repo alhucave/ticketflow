@@ -31,6 +31,7 @@ dependencies {
     testImplementation("io.projectreactor:reactor-test")
     testImplementation("org.mockito:mockito-core")
     testImplementation("com.tngtech.archunit:archunit:1.5.1")
+    testImplementation("org.awaitility:awaitility")
     testImplementation("org.testcontainers:testcontainers-junit-jupiter")
     testImplementation("org.testcontainers:testcontainers-localstack")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")

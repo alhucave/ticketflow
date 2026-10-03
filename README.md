@@ -51,6 +51,31 @@ Propiedades `ticketflow.sqs.*` (variables de entorno `TICKETFLOW_SQS_*`): `endpo
 - Solo se reintentan (con `Retry.backoff`) los errores transitorios: throttling, 5xx y errores de conexión. El resto falla de inmediato.
 - Semántica **at-least-once**: un reintento o un ack perdido pueden duplicar el mensaje. Es aceptable: el consumidor (`ProcessOrderUseCase`) es idempotente por orden.
 
+## Consumidor SQS (procesamiento de órdenes)
+
+`SqsOrderConsumer` (`infrastructure.messaging`) hace *long polling* reactivo de la cola de órdenes e invoca `ProcessOrderUseCase` por cada mensaje. Es un `SmartLifecycle`: arranca con la aplicación y se detiene de forma ordenada. **Está desactivado por defecto**: solo arranca con `ticketflow.sqs.consumer.enabled=true` (`docker-compose.yml` lo activa para `app`), así que los contextos y tests sin SQS no hacen polling. Reutiliza el cliente y la resolución de URL de cola de `ticketflow.sqs.*`.
+
+Propiedades `ticketflow.sqs.consumer.*` (variables `TICKETFLOW_SQS_CONSUMER_*`):
+
+| Propiedad | Por defecto | Significado |
+|-----------|-------------|-------------|
+| `enabled` | `false` | Arranca el consumidor |
+| `batch-size` | `10` | Mensajes por `ReceiveMessage` (1 a 10) |
+| `wait-time` | `20s` | Espera del long polling (1 a 20 s) |
+| `visibility-timeout` | `30s` | Tiempo que un mensaje recibido queda invisible; debe superar lo que tarda en procesarse un lote |
+| `concurrency` | `4` | Máximo de mensajes procesándose en paralelo (`flatMap`) |
+| `shutdown-timeout` | `25s` | Espera máxima a los mensajes en vuelo al detener la aplicación |
+| `min-backoff` / `max-backoff` | `1s` / `30s` | Backoff exponencial acotado si `ReceiveMessage` falla (reintenta indefinidamente) |
+
+Semántica **at-least-once**:
+
+- El mensaje se **borra solo después** de que el caso de uso termine con éxito (`Sold`, `ReleasedAsExpired`, `AlreadyProcessed` y `OrderMissing` son resultados terminales).
+- Si el caso de uso falla (error transitorio o `OrderStatusConflictException` final), o falla el borrado, el mensaje **no se borra**: SQS lo vuelve a entregar tras el `visibility-timeout` y, superado `maxReceiveCount`, lo mueve a la DLQ. La reentrega es segura porque el caso de uso es idempotente.
+- Mensajes *poison* (JSON inválido, `version` desconocida, sin `orderId`): se registran con `WARN` (sin volcar el cuerpo), no se borran y siguen el redrive hacia la DLQ; no detienen el consumidor ni bloquean a los demás mensajes del lote.
+- Colas: `docker/localstack/init-queues.sh` crea `orders` con redrive a `orders-dlq` y `maxReceiveCount=3` (configurable con `ORDERS_MAX_RECEIVE_COUNT`). En AWS real hay que crear la cola con una política de redrive equivalente.
+- Apagado ordenado: se deja de hacer polling (un long poll en curso se cancela; sus mensajes reaparecen), se espera a los mensajes en vuelo hasta `shutdown-timeout` y después se libera el bucle. Spring espera por defecto 30 s por fase de apagado; mantén `shutdown-timeout` por debajo.
+- Inspeccionar la DLQ en local: `docker-compose exec localstack awslocal sqs receive-message --queue-url http://localhost:4566/000000000000/orders-dlq`.
+
 ## Configuración de la disponibilidad en tiempo real
 
 - `ticketflow.availability.poll-interval` (por defecto `1s`): cada cuánto consulta el inventario el flujo de disponibilidad. Se puede fijar con la variable de entorno `TICKETFLOW_AVAILABILITY_POLL_INTERVAL`.

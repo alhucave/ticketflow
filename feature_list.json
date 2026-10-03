@@ -269,7 +269,7 @@
     "id": "F-016",
     "name": "sqs-consumer",
     "phase": 5,
-    "status": "pending",
+    "status": "in_progress",
     "depends_on": [
       "F-014",
       "F-015"
