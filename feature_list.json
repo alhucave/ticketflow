@@ -400,7 +400,7 @@
     "id": "F-023",
     "name": "security-hardening",
     "phase": 8,
-    "status": "in_progress",
+    "status": "done",
     "depends_on": [
       "F-019"
     ],
