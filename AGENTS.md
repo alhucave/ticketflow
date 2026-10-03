@@ -25,7 +25,7 @@ Java 25 · Spring Boot 4.x · Spring WebFlux · Gradle (Kotlin DSL) · DynamoDB 
 1. `leader` toma una feature `pending` (respetando `depends_on`) y lanza un `implementer`.
 2. `implementer` trabaja en la rama `feature/<id>-<name>`, escribe código + tests, corre `./init.sh` y reporta en `progress/impl_<name>.md`.
 3. `reviewer` ejecuta `./init.sh` por su cuenta y aplica `CHECKPOINTS.md`; escribe `progress/review_<name>.md`.
-4. Con `APPROVED`: se abre el PR (`Closes #<issue>`), el CI debe estar en verde y se hace merge a `main`.
+4. Con `APPROVED`: se abre el PR (`Closes #<issue>`), el CI debe estar en verde y se hace merge a `main`. (Con el repositorio privado en plan Free GitHub no impone la protección de `main`: respetar el CI en verde es una disciplina del flujo, no una regla técnica.)
 5. El `implementer` marca `done` en `feature_list.json`.
 
 ## Reglas globales

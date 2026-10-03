@@ -720,7 +720,7 @@ Permisos del rol de despliegue (ilustrativo, no desplegado): subir la imagen a u
 ```mermaid
 flowchart LR
     pr["Pull request"] --> ci["GitHub Actions<br/>verify y security"]
-    ci --> main["Merge a main<br/>rama protegida"]
+    ci --> main["Merge a main<br/>protección de rama si el plan lo permite"]
     main --> tag["Tag v*"]
     tag --> rel["release.yml<br/>hoy publica en ghcr.io"]
     rel -.->|"diseño: OIDC, rol de despliegue"| ecr["ECR<br/>etiqueta inmutable, escaneo, firma"]
@@ -883,8 +883,8 @@ Ya existe y se conserva:
 
 | Control | Estado |
 |---------|--------|
-| Rama `main` protegida: check `verify` obligatorio, rama al día, sin force-push ni borrado | Existente (README, «CI/CD») |
-| Todo cambio por PR con `Closes #<issue>` y CI en verde | Existente |
+| Rama `main` protegida: check `verify` obligatorio, rama al día, sin force-push ni borrado | **Configurada, pero no aplicable hoy**: el repositorio es privado en un plan Free (requiere GitHub Pro/Team o repositorio público; ver README, «CI/CD») |
+| Todo cambio por PR con `Closes #<issue>` y CI en verde | Existente como **convención** (el CI corre, pero hoy no bloquea la fusión) |
 | Escaneo de dependencias, imagen y secretos | Existente (`security.yml`, semanal y en cada PR) |
 | Dependabot (Gradle con lockfile, Actions, Docker) | Existente |
 
