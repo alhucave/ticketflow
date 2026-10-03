@@ -307,7 +307,7 @@
     "id": "F-018",
     "name": "web-events-api",
     "phase": 7,
-    "status": "pending",
+    "status": "done",
     "depends_on": [
       "F-010"
     ],

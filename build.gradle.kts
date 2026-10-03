@@ -22,6 +22,7 @@ dependencies {
     implementation(platform("software.amazon.awssdk:bom:2.55.10"))
 
     implementation("org.springframework.boot:spring-boot-starter-webflux")
+    implementation("org.springframework.boot:spring-boot-starter-validation")
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     implementation("software.amazon.awssdk:dynamodb-enhanced")
     implementation("software.amazon.awssdk:sqs")

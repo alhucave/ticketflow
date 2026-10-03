@@ -1,5 +1,5 @@
 # Estado actual
 
 Feature en curso: ninguna
-Ultimas completadas: F-001 a F-017 (APPROVED). Fase 6 completa.
-Siguiente: F-018 — web-events-api (Fase 7, API)
+Ultimas completadas: F-001 a F-018 (APPROVED)
+Siguiente: F-019 — web-orders-availability-api (ver notas de F-011/F-012/F-013 en feature_list.json), luego F-020, F-021
