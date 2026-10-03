@@ -1,5 +1,5 @@
 # Estado actual
 
 Feature en curso: ninguna
-Ultimas completadas: F-001 a F-015 (APPROVED)
-Siguiente: F-016 — sqs-consumer (ver notas en feature_list.json)
+Ultimas completadas: F-001 a F-016 (APPROVED). Fase 5 completa.
+Siguiente: F-017 — reservation-expiration-job (Fase 6)

@@ -52,6 +52,8 @@ services:
       TICKETFLOW_SQS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-test}
       TICKETFLOW_SQS_REGION: ${AWS_REGION:-us-east-1}
       TICKETFLOW_SQS_ORDERS_QUEUE_NAME: ${ORDERS_QUEUE_NAME:-orders}
+      # Order consumer (ProcessOrderUseCase); the queue has a redrive policy to the DLQ (init-queues.sh).
+      TICKETFLOW_SQS_CONSUMER_ENABLED: "true"
       # Create DynamoDB tables and GSIs at startup (idempotent).
       TICKETFLOW_DYNAMODB_PROVISIONING_ENABLED: "true"
       TICKETFLOW_DYNAMODB_ENDPOINT: http://dynamodb:8000

@@ -13,9 +13,7 @@ import reactor.util.retry.Retry;
 import software.amazon.awssdk.core.exception.SdkClientException;
 import software.amazon.awssdk.awscore.exception.AwsServiceException;
 import software.amazon.awssdk.services.sqs.SqsAsyncClient;
-import software.amazon.awssdk.services.sqs.model.GetQueueUrlRequest;
 import software.amazon.awssdk.services.sqs.model.MessageAttributeValue;
-import software.amazon.awssdk.services.sqs.model.QueueDoesNotExistException;
 import software.amazon.awssdk.services.sqs.model.SendMessageRequest;
 import tools.jackson.databind.json.JsonMapper;
 
@@ -58,7 +56,7 @@ public final class SqsOrderQueuePublisher implements OrderQueuePublisher {
         this.retry = transientRetry(maxRetries, minBackoff);
     }
 
-    private static Retry transientRetry(int maxRetries, Duration minBackoff) {
+    static Retry transientRetry(int maxRetries, Duration minBackoff) {
         return Retry.backoff(maxRetries, minBackoff)
                 .filter(SqsOrderQueuePublisher::isTransient)
                 .onRetryExhaustedThrow((spec, signal) -> signal.failure());
@@ -72,14 +70,7 @@ public final class SqsOrderQueuePublisher implements OrderQueuePublisher {
     static SqsOrderQueuePublisher forQueueName(SqsAsyncClient client, String queueName, int maxRetries,
                                                Duration minBackoff) {
         Retry retry = transientRetry(maxRetries, minBackoff);
-        Mono<String> resolved = Mono.defer(() -> Mono.fromFuture(
-                        client.getQueueUrl(GetQueueUrlRequest.builder().queueName(queueName).build())))
-                .retryWhen(retry)
-                .map(response -> response.queueUrl())
-                .onErrorMap(QueueDoesNotExistException.class, e -> new OrderQueueNotFoundException(queueName, e))
-                .doOnNext(url -> LOG.info("Resolved SQS queue '{}'", queueName))
-                // Cache the URL forever, but never cache a failure.
-                .cache(url -> Duration.ofDays(3650), error -> Duration.ZERO, () -> Duration.ZERO);
+        Mono<String> resolved = SqsQueueUrlResolver.byName(client, queueName, retry);
         return new SqsOrderQueuePublisher(client, resolved, maxRetries, minBackoff);
     }
 
