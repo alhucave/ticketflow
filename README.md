@@ -106,15 +106,60 @@ Garantías:
 
 ## Endpoints
 
-API reactiva (Spring WebFlux, `Mono`/`Flux`) de eventos. Con `docker-compose up --build` la app escucha en `http://localhost:8080`.
+API reactiva (Spring WebFlux, `Mono`/`Flux`) de eventos, compras asíncronas y disponibilidad. Con `docker-compose up --build` la app escucha en `http://localhost:8080`.
 
 | Método | Ruta | Respuesta |
 |--------|------|-----------|
 | `POST` | `/events` | `201` + cabecera `Location: /events/{id}` + evento creado |
 | `GET` | `/events/{id}` | `200` evento + inventario (`available`, `reserved`, `pendingConfirmation`, `sold`, `complimentary`); `404` si no existe |
 | `GET` | `/events` | `200` lista de eventos **sin inventario** (para los contadores usar `GET /events/{id}`) |
+| `POST` | `/orders` | Cabecera obligatoria `Idempotency-Key`; `202` inmediato + `Location: /orders/{orderId}` + `{orderId, status, reservationExpiresAt}` |
+| `GET` | `/orders/{id}` | `200` estado de la orden (consultable en cualquier momento); `404` si no existe |
+| `GET` | `/events/{id}/availability` | `200` instantánea `{available, reserved, pendingConfirmation, sold, complimentary, capacity}`; `404` si el evento no existe |
+| `GET` | `/events/{id}/availability/stream` | `text/event-stream`: emite el valor actual de inmediato y después cada cambio; `404` JSON si el evento no existe |
 
 Validación del body de `POST /events`: `name` y `venue` no vacíos (máx. 200), `capacity` entre 1 y 1.000.000, `startsAt` obligatorio (instante ISO-8601). La regla de negocio "fecha futura" la aplica el caso de uso (`400`). El `id` lo genera el servidor.
+
+### Compras (`POST /orders`)
+
+- **Procesamiento asíncrono**: la petición reserva las entradas (10 min), encola la orden en SQS y responde `202` sin esperar; el consumer la procesa después (`RESERVED -> PENDING_CONFIRMATION -> SOLD`). El progreso se consulta con `GET /orders/{id}`.
+- **`Idempotency-Key`** (obligatoria): no vacía, máximo 128 caracteres, solo `[A-Za-z0-9._:-]`; si no, `400`. Reintentar con la misma clave y el mismo body devuelve la **misma orden** (mismo `orderId`, nada se reserva dos veces); el `status` puede haber avanzado desde la primera respuesta. La misma clave con otro body es `409`.
+- **Body**: `{"eventId": "...", "quantity": 1..10}`. **Límite: máximo 10 entradas por orden** (acota cuánto inventario puede retener una sola petición); `eventId` no vacío.
+- `reservationExpiresAt` solo aparece mientras la reserva sigue viva (`RESERVED`/`PENDING_CONFIRMATION`); se omite en `SOLD`, `COMPLIMENTARY` y `AVAILABLE`.
+- **Disponibilidad**: `available` descuenta lo vendido **y** lo reservado temporalmente (`reserved`, `pendingConfirmation`); solo `sold` cuenta como venta.
+- **Stream SSE**: si el inventario falla de forma transitoria, el servidor se vuelve a suscribir con backoff exponencial (1 s a 30 s) sin cerrar la conexión del cliente ni enviarle detalles del error.
+
+Errores de esta API: `400` (cabecera `Idempotency-Key` ausente o inválida, body inválido), `404` (orden o evento inexistente), `409` (inventario insuficiente, clave reutilizada con otro payload, orden de esa clave ya liberada: usar una clave nueva), `503` (no se pudo encolar la orden: se puede reintentar con una `Idempotency-Key` **nueva**).
+
+```bash
+# Comprar 3 entradas -> 202 + Location (EVENT_ID = id devuelto al crear el evento)
+curl -i -X POST http://localhost:8080/orders -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: demo-key-1' -d '{"eventId":"EVENT_ID","quantity":3}'
+# HTTP/1.1 202 Accepted
+# Location: /orders/bcb8a659-aedf-562d-a829-8a0d1030a974
+# {"orderId":"bcb8a659-aedf-562d-a829-8a0d1030a974","status":"RESERVED","reservationExpiresAt":"2026-10-03T01:13:26.726661177Z"}
+
+# Consultar la orden hasta que llegue a SOLD
+curl -s http://localhost:8080/orders/bcb8a659-aedf-562d-a829-8a0d1030a974
+# {"orderId":"bcb8a659-...","eventId":"EVENT_ID","quantity":3,"status":"SOLD","createdAt":"2026-10-03T01:03:26.726661177Z"}
+
+# Disponibilidad
+curl -s http://localhost:8080/events/EVENT_ID/availability
+# {"available":17,"reserved":0,"pendingConfirmation":0,"sold":3,"complimentary":0,"capacity":20}
+
+# Reintento con la misma clave y body -> 202 con la misma orden (el status puede haber avanzado)
+# {"orderId":"bcb8a659-aedf-562d-a829-8a0d1030a974","status":"SOLD"}
+
+# Misma clave con otro body -> 409; sin cabecera -> 400; quantity 11 -> 400
+# {"...","status":409,"title":"Idempotency-Key reused","type":"urn:ticketflow:problem:idempotency-key-reused"}
+# {"...","status":400,"title":"Invalid Idempotency-Key","type":"urn:ticketflow:problem:invalid-idempotency-key"}
+
+# Disponibilidad en tiempo real (SSE): valor actual y luego cada cambio
+curl -N -H 'Accept: text/event-stream' http://localhost:8080/events/EVENT_ID/availability/stream
+# data:{"available":20,"reserved":0,"pendingConfirmation":0,"sold":0,"complimentary":0,"capacity":20}
+#
+# data:{"available":18,"reserved":0,"pendingConfirmation":0,"sold":2,"complimentary":0,"capacity":20}
+```
 
 Los errores siguen RFC 7807 (`application/problem+json`) con `type`, `title`, `status`, `detail`; los fallos de validación añaden `violations` (`field`, `message`). Cubiertos: `400` (validación, JSON mal formado, evento inválido), `404` (evento inexistente) y `409` (evento duplicado). Nunca se exponen trazas ni mensajes internos.
 
