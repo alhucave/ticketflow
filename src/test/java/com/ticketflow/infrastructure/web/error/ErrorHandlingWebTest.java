@@ -7,6 +7,7 @@ import ch.qos.logback.classic.Logger;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.read.ListAppender;
 import com.ticketflow.infrastructure.config.CorrelationConfig;
+import com.ticketflow.infrastructure.config.RateLimitConfig;
 import java.util.List;
 import java.util.UUID;
 import java.util.stream.Stream;
@@ -32,7 +33,7 @@ import org.springframework.test.web.reactive.server.WebTestClient;
  */
 @WebFluxTest(controllers = ErrorProbeController.class)
 @Import({ApiExceptionHandler.class, ProblemWebExceptionHandler.class, CorrelationIdWebFilter.class,
-        CorrelationConfig.class})
+        CorrelationConfig.class, RateLimitConfig.class})
 class ErrorHandlingWebTest {
 
     private static final String TYPE = "urn:ticketflow:problem:";
@@ -72,6 +73,17 @@ class ErrorHandlingWebTest {
                 Arguments.of("expired", 410, "reservation-expired"),
                 Arguments.of("rate-limit", 429, "rate-limit-exceeded"),
                 Arguments.of("enqueue", 503, "order-enqueue-failed"),
+                Arguments.of("bad-path-id", 404, "not-found"),
+                Arguments.of("bad-field", 400, "validation-error"),
+                Arguments.of("throttled", 503, "service-unavailable"),
+                Arguments.of("aws-503", 503, "service-unavailable"),
+                Arguments.of("aws-429", 503, "service-unavailable"),
+                Arguments.of("tx-conflict", 503, "service-unavailable"),
+                Arguments.of("sdk-client", 503, "service-unavailable"),
+                Arguments.of("timeout", 503, "service-unavailable"),
+                Arguments.of("retry-exhausted", 503, "service-unavailable"),
+                Arguments.of("aws-400", 500, "internal-error"),
+                Arguments.of("conditional-failed", 500, "internal-error"),
                 Arguments.of("unexpected", 500, "internal-error"),
                 Arguments.of("error", 500, "internal-error"),
                 Arguments.of("status-503", 503, "internal-error"),
@@ -102,12 +114,78 @@ class ErrorHandlingWebTest {
     }
 
     @ParameterizedTest
-    @ValueSource(strings = {"unexpected", "unexpected-sync-cause", "error", "status-503", "status-418", "enqueue"})
+    @ValueSource(strings = {"unexpected", "unexpected-sync-cause", "error", "status-503", "status-418", "enqueue",
+            "throttled", "aws-503", "tx-conflict", "sdk-client", "timeout", "retry-exhausted", "aws-400"})
     void throwing_internalDetails_neverAppearInBodyOrHeaders(String kind) {
         EntityExchangeResult<byte[]> result = client.get().uri("/probe/throw/{kind}", kind).exchange()
                 .expectBody().returnResult();
         assertNoLeak(new String(result.getResponseBodyContent()));
         assertThat(result.getResponseHeaders().toString()).doesNotContain(ErrorProbeController.SECRET);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"throttled", "aws-503", "aws-429", "tx-conflict", "sdk-client", "timeout",
+            "retry-exhausted"})
+    void throwing_transientInfrastructureFailure_is503WithRetryAfterAndNoInternals(String kind) {
+        client.get().uri("/probe/throw/{kind}", kind).exchange()
+                .expectStatus().isEqualTo(503)
+                .expectHeader().valueEquals(HttpHeaders.RETRY_AFTER, "5")
+                .expectBody()
+                .jsonPath("$.detail").isEqualTo("A required service is temporarily unavailable; retry shortly");
+        // Logged by class name only: neither the message (may hold endpoints/internals) nor a stack trace.
+        ILoggingEvent line = logs.list.stream()
+                .filter(e -> e.getFormattedMessage().startsWith("Dependency unavailable")).findFirst().orElseThrow();
+        assertThat(line.getFormattedMessage()).doesNotContain(ErrorProbeController.SECRET);
+        assertThat(line.getThrowableProxy()).isNull();
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"concurrent", "status-conflict", "insufficient", "key-reused", "order-exists"})
+    void throwing_businessConflict_isNever503(String kind) {
+        client.get().uri("/probe/throw/{kind}", kind).exchange()
+                .expectStatus().isEqualTo(409)
+                .expectBody().jsonPath("$.type").value(type ->
+                        assertThat((String) type).doesNotContain("service-unavailable"));
+    }
+
+    @Test
+    void throwing_invalidFieldAndPathId_useFixedTextsWithoutEchoingInput() {
+        client.get().uri("/probe/throw/bad-field").exchange().expectStatus().isBadRequest()
+                .expectBody()
+                .jsonPath("$.violations.length()").isEqualTo(1)
+                .jsonPath("$.violations[0].field").isEqualTo("quantity")
+                .jsonPath("$.violations[0].message").isEqualTo("must be less than or equal to 3");
+        client.get().uri("/probe/throw/bad-path-id").exchange().expectStatus().isNotFound()
+                .expectBody().jsonPath("$.detail").isEqualTo("The requested resource was not found");
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"/probe/ok", "/probe/throw/unexpected", "/probe/throw/insufficient",
+            "/probe/throw/throttled", "/probe/throw/rate-limit", "/definitely/not/a/route"})
+    void everyResponse_successOrError_carriesTheSecurityHeaders(String path) {
+        HttpHeaders headers = client.get().uri(path).exchange().returnResult(String.class).getResponseHeaders();
+        assertThat(headers.getFirst("X-Content-Type-Options")).isEqualTo("nosniff");
+        assertThat(headers.getFirst(HttpHeaders.CACHE_CONTROL)).isEqualTo("no-store");
+        assertThat(headers.getFirst("Referrer-Policy")).isEqualTo("no-referrer");
+        assertThat(headers.getFirst("X-Frame-Options")).isEqualTo("DENY");
+        assertThat(headers.getFirst("Content-Security-Policy")).isEqualTo("default-src 'none'; frame-ancestors 'none'");
+        assertThat(headers.getFirst("Cross-Origin-Resource-Policy")).isEqualTo("same-origin");
+        assertThat(headers.get("X-Content-Type-Options")).hasSize(1); // set, never duplicated
+        assertThat(headers.getFirst(CorrelationId.HEADER)).isNotBlank();
+    }
+
+    @Test
+    void securityHeaders_alsoOnRoutingAndBodyErrors() {
+        client.delete().uri("/probe/ok").exchange().expectStatus().isEqualTo(405)
+                .expectHeader().valueEquals("X-Content-Type-Options", "nosniff")
+                .expectHeader().valueEquals(HttpHeaders.CACHE_CONTROL, "no-store");
+        client.post().uri("/probe/body").contentType(MediaType.APPLICATION_JSON).bodyValue("{oops").exchange()
+                .expectStatus().isBadRequest()
+                .expectHeader().valueEquals("X-Content-Type-Options", "nosniff")
+                .expectHeader().valueEquals("Referrer-Policy", "no-referrer");
+        client.post().uri("/probe/body").contentType(MediaType.TEXT_PLAIN).bodyValue("x").exchange()
+                .expectStatus().isEqualTo(415)
+                .expectHeader().valueEquals(HttpHeaders.CACHE_CONTROL, "no-store");
     }
 
     @Test

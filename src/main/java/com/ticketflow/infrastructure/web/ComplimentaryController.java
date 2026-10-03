@@ -40,10 +40,11 @@ public class ComplimentaryController {
             @PathVariable String id,
             @RequestHeader(name = OrderMapper.IDEMPOTENCY_KEY_HEADER, required = false) String idempotencyKey,
             @Valid @RequestBody Mono<ComplimentaryRequest> request) {
+        EventId eventId = PathIds.eventId(id);
         return Mono.fromSupplier(() -> OrderMapper.toKey(idempotencyKey))
                 .flatMap(key -> request.map(body -> new IssueComplimentaryCommand(
-                        new EventId(id), new Quantity(body.quantity()), key, body.reason())))
-                .flatMap(issueComplimentary::execute)
+                        eventId, new Quantity(body.quantity()), key, body.reason())))
+                .flatMap(command -> Detached.detach(issueComplimentary.execute(command)))
                 .map(result -> ResponseEntity.status(HttpStatus.CREATED)
                         .location(UriComponentsBuilder.fromPath("/orders/{id}").build(result.orderId().value()))
                         .body(new ComplimentaryResponse(result.orderId().value(), result.eventId().value(),

@@ -3,6 +3,7 @@ package com.ticketflow.infrastructure.web;
 import static org.mockito.Mockito.verifyNoInteractions;
 
 import com.ticketflow.infrastructure.config.CorrelationConfig;
+import com.ticketflow.infrastructure.config.RateLimitConfig;
 import com.ticketflow.infrastructure.web.error.ApiExceptionHandler;
 import com.ticketflow.infrastructure.web.error.CorrelationIdWebFilter;
 import com.ticketflow.infrastructure.web.error.ProblemWebExceptionHandler;
@@ -18,7 +19,8 @@ import org.springframework.test.web.reactive.server.WebTestClient;
 /** Secure by default: with no admin key configured the endpoint is closed, whatever the caller sends. */
 @WebFluxTest(controllers = ComplimentaryController.class)
 @Import({ApiExceptionHandler.class, ProblemWebExceptionHandler.class, CorrelationIdWebFilter.class,
-        CorrelationConfig.class, AdminKeyWebFilter.class})
+        CorrelationConfig.class, AdminKeyWebFilter.class, RateLimitConfig.class})
+@org.springframework.test.context.TestPropertySource(properties = "ticketflow.rate-limit.admin-failure-capacity=1000")
 class ComplimentaryDisabledWebTest {
 
     @Autowired
@@ -31,7 +33,7 @@ class ComplimentaryDisabledWebTest {
     void issue_noKeyConfigured_is403WhateverIsSent() {
         for (String supplied : new String[] {null, "", "anything"}) {
             var spec = client.post().uri("/events/evt-1/complimentary").contentType(MediaType.APPLICATION_JSON)
-                    .header("Idempotency-Key", "key-1");
+                    .header("Idempotency-Key", "key-0123456789abcdef");
             if (supplied != null) {
                 spec.header("X-Admin-Key", supplied);
             }

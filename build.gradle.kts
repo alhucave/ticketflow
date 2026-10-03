@@ -26,6 +26,8 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-actuator")
     // Carries the correlation id from the Reactor context into the logging MDC (see CorrelationContextPropagation).
     implementation("io.micrometer:context-propagation")
+    // Bounded, expiring per-client state of the rate limiter (version managed by the Spring Boot BOM).
+    implementation("com.github.ben-manes.caffeine:caffeine")
     implementation("software.amazon.awssdk:dynamodb-enhanced")
     implementation("software.amazon.awssdk:sqs")
 

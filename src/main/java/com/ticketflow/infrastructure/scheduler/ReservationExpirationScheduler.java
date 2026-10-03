@@ -4,6 +4,7 @@ import com.ticketflow.infrastructure.config.ExpirationProperties;
 import com.ticketflow.usecase.ReleaseExpiredReservationsUseCase;
 import java.time.Duration;
 import java.util.concurrent.TimeoutException;
+import java.util.function.BooleanSupplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.SmartLifecycle;
@@ -27,6 +28,11 @@ import reactor.core.scheduler.Schedulers;
  * progress finish for at most {@code shutdownTimeout}; a release interrupted after that is safe
  * because each one is a single atomic transaction.
  *
+ * <p><b>Restart.</b> Each {@code start()} gets a new generation number captured by its loop; a loop
+ * keeps scheduling only while it is still the current generation, so a {@code stop()} + {@code start()}
+ * while the previous sweep is still draining cannot leave two schedules alive (the old one ends right
+ * after its sweep).
+ *
  * <p>The timer is injectable so tests use virtual time.
  */
 public final class ReservationExpirationScheduler implements SmartLifecycle {
@@ -41,6 +47,8 @@ public final class ReservationExpirationScheduler implements SmartLifecycle {
     private Sinks.Empty<Void> stopSignal;
     private Sinks.Empty<Void> terminated;
     private volatile boolean running;
+    /** Incremented by every start(); a loop is alive only while its captured value is the current one. */
+    private volatile long generation;
 
     public ReservationExpirationScheduler(ReleaseExpiredReservationsUseCase useCase,
                                           ExpirationProperties properties) {
@@ -60,12 +68,14 @@ public final class ReservationExpirationScheduler implements SmartLifecycle {
             return;
         }
         running = true;
+        long myGeneration = ++generation;
+        BooleanSupplier alive = () -> running && generation == myGeneration;
         stopSignal = Sinks.empty();
         terminated = Sinks.empty();
         Mono<Void> stop = stopSignal.asMono();
         Sinks.Empty<Void> done = terminated;
-        subscription = cycle(properties.initialDelay(), stop)
-                .thenMany(cycle(properties.interval(), stop).repeat(() -> running))
+        subscription = cycle(properties.initialDelay(), stop, alive)
+                .thenMany(cycle(properties.interval(), stop, alive).repeat(alive::getAsBoolean))
                 .doFinally(signal -> done.tryEmitEmpty())
                 .subscribe(null, error -> LOG.error("Reservation expiration scheduler terminated unexpectedly",
                         error));
@@ -111,10 +121,10 @@ public final class ReservationExpirationScheduler implements SmartLifecycle {
     }
 
     /** Waits {@code delay} (cancelled by stop) and, if still running, performs one sweep. */
-    private Mono<Void> cycle(Duration delay, Mono<Void> stop) {
+    private Mono<Void> cycle(Duration delay, Mono<Void> stop, BooleanSupplier alive) {
         return Mono.delay(delay, timer)
                 .takeUntilOther(stop)
-                .filter(tick -> running)
+                .filter(tick -> alive.getAsBoolean())
                 .flatMap(tick -> sweep());
     }
 

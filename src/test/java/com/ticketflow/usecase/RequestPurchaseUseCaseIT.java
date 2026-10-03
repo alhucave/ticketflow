@@ -198,7 +198,10 @@ class RequestPurchaseUseCaseIT {
         assertThat(inv.reserved()).isEqualTo(3);
         assertThat(inv.available()).isEqualTo(47);
         assertThat(inv.version()).isEqualTo(1);
-        assertThat(queue.published).hasSize(1);
+        // The original publish plus one republish per replay while the order is still RESERVED (F-023):
+        // all for the same single order, which the idempotent consumer handles once.
+        assertThat(queue.published).hasSize(3);
+        assertThat(queue.published.stream().map(Order::id).distinct()).containsExactly(first.orderId());
         assertThat(orders.findAuditTrail(first.orderId()).collectList().block(WAIT)).hasSize(1);
     }
 
@@ -218,7 +221,10 @@ class RequestPurchaseUseCaseIT {
         assertThat(inv.reserved()).isEqualTo(2);
         assertThat(inv.available()).isEqualTo(48);
         assertThat(inv.version()).isEqualTo(1);
-        assertThat(queue.published).hasSize(1);
+        // One original publish plus a republish for each of the 49 replays that found the order RESERVED
+        // (a replay that read it after the consumer advanced it would not); never a second order.
+        assertThat(queue.published).hasSizeBetween(1, 50);
+        assertThat(queue.published.stream().map(Order::id).distinct()).containsExactly(results.get(0).orderId());
         assertThat(orders.findAuditTrail(results.get(0).orderId()).collectList().block(WAIT)).hasSize(1);
     }
 

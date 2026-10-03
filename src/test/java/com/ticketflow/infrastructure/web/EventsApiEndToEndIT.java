@@ -50,6 +50,7 @@ class EventsApiEndToEndIT {
         registry.add("ticketflow.dynamodb.provisioning-enabled", () -> "true");
         registry.add("ticketflow.sqs.consumer.enabled", () -> "false");
         registry.add("ticketflow.expiration.enabled", () -> "false");
+        E2eContainers.generousRateLimits(registry);
         // The SQS client is built eagerly but never called by the events API; point it nowhere real.
         registry.add("ticketflow.sqs.endpoint", () -> "http://localhost:1");
         registry.add("ticketflow.sqs.access-key-id", () -> "test");

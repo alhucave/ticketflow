@@ -104,6 +104,56 @@ Garantías:
 
 - `ticketflow.availability.poll-interval` (por defecto `1s`): cada cuánto consulta el inventario el flujo de disponibilidad. Se puede fijar con la variable de entorno `TICKETFLOW_AVAILABILITY_POLL_INTERVAL`.
 
+## Seguridad de la aplicación (F-023, parte 1)
+
+Endurecimiento a nivel de aplicación. (La parte 2 —escaneo de dependencias y secretos en CI, Dependabot, endurecimiento de compose/imagen y `docs/security.md`— llega en otra entrega.)
+
+### Rate limiting por cliente
+
+`RateLimitWebFilter` aplica un **token bucket por cliente** a las rutas de escritura `POST /orders`, `POST /events` y `POST /events/{id}/complimentary` (comparten el mismo bucket por cliente; las lecturas no se limitan). Al agotarse responde `429` `rate-limit-exceeded` con `Retry-After` calculado del propio bucket (segundos hasta el siguiente token); la petición rechazada no llega a leer el body ni a tocar DynamoDB/SQS. Además, los intentos **fallidos** de `X-Admin-Key` (clave ausente o incorrecta) tienen un presupuesto mucho más estricto por cliente: agotado, el cliente recibe `429` **sin que se compare la clave** (ni la correcta se acepta hasta que se rellene un token), lo que frena la fuerza bruta. El caso «sin clave configurada» (`403`) no es una adivinanza y no cuenta.
+
+Propiedades `ticketflow.rate-limit.*` (variables `TICKETFLOW_RATE_LIMIT_*`; activo por defecto):
+
+| Propiedad | Por defecto | Significado |
+|-----------|-------------|-------------|
+| `enabled` | `true` | Desactiva todo el limitador (solo para pruebas) |
+| `capacity` | `20` | Ráfaga: peticiones de escritura que un cliente puede hacer de golpe |
+| `refill-per-second` | `1` | Ritmo sostenido de escrituras por cliente |
+| `admin-failure-capacity` | `5` | Intentos fallidos de `X-Admin-Key` tolerados de golpe |
+| `admin-failure-refill-per-second` | `0.05` | Recuperación (un intento cada 20 s) |
+| `max-clients` | `10000` | Máximo de clientes seguidos (memoria **acotada**; Caffeine) |
+| `idle-ttl` | `15m` | Un cliente inactivo se olvida (nunca antes de lo que tarda su bucket en llenarse) |
+| `trust-forwarded-for` | `false` | Identificar al cliente por `X-Forwarded-For` en vez de la dirección del socket |
+
+- **Identidad del cliente**: la dirección remota del socket. `X-Forwarded-For` **solo** se tiene en cuenta con `trust-forwarded-for=true`, y entonces se usa la **última** entrada (la que añade el proxy de confianza; las anteriores las controla el cliente), que debe ser una IP literal válida (si no, se usa el socket; nunca se resuelven nombres). **Precaución con proxies**: tras un proxy/balanceador sin esta opción todos los clientes parecen la misma IP (comparten bucket); con la opción activa **sin** un proxy delante cualquier cliente podría elegir su identidad. Actívela solo con exactamente un proxy de confianza que añada la dirección de su par y con la app inalcanzable sin él.
+- **Por instancia**: el estado vive en memoria de cada instancia; con N réplicas el presupuesto efectivo es N veces el configurado. Si la tabla de clientes se llena se expulsa el menos valioso, así que quien rote muchas IP puede reiniciar presupuestos ajenos. Por eso un despliegue real **necesita además una capa de borde** (API Gateway con throttling por clave/IP, AWS WAF con reglas de tasa, CloudFront…): el limitador de la aplicación es la última línea, no la única. Esto se retomará en la documentación de AWS (F-026).
+
+### Límites de entrada y de recursos
+
+| Límite | Valor | Respuesta |
+|--------|-------|-----------|
+| Tamaño del body | `spring.http.codecs.max-in-memory-size` = 32 KB | `413` `payload-too-large` (problem+json) |
+| Entradas por orden | `ticketflow.orders.max-quantity` = 10 | `400` `validation-error` (`quantity`) |
+| `Idempotency-Key` | 16-128 caracteres `[A-Za-z0-9._:-]` | `400` `invalid-idempotency-key` |
+| Ids de ruta (`/events/{id}`, `/orders/{id}`...) | 1-64 caracteres `[A-Za-z0-9._-]` | `404` `not-found` genérico, sin repetir el valor |
+
+Las cabeceras HTTP las limita Netty (8 KB por defecto).
+
+### Seguridad de los reintentos
+
+- **Replay de una reserva sin mensaje**: si el primer intento murió (o el cliente se desconectó) entre la transacción y la publicación, la orden queda `RESERVED` sin mensaje. Un reintento con la misma `Idempotency-Key` y el mismo payload **republica el mensaje** (mejor esfuerzo: un fallo al republicar no convierte el replay en error ni libera nada; se registra sin detalles internos). Los duplicados son seguros porque el consumer es idempotente. Una orden que ya pasó de `RESERVED` no se republica.
+- **Desconexión del cliente**: la cadena «reservar -> publicar -> compensar si falla» se **desacopla de la suscripción de la petición** (`Detached`, un `Mono.cache()` que fija el contexto de Reactor, por lo que el correlation id sigue viajando): si el cliente cancela a medias, la publicación termina igualmente (o la compensación libera la reserva), de modo que nunca queda inventario reservado sin mensaje. Lo mismo para las cortesías.
+
+### Cabeceras de seguridad y secretos
+
+- `SecurityHeadersWebFilter` añade a **toda** respuesta (éxitos y errores): `X-Content-Type-Options: nosniff`, `Cache-Control: no-store`, `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY`, `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'` y `Cross-Origin-Resource-Policy: same-origin`. `Strict-Transport-Security` no se envía a propósito: el TLS se termina en el borde.
+- Los objetos de configuración con secretos (`DynamoDbProperties`, `SqsProperties`, `AdminKeyGuard`) **nunca los imprimen** en `toString()` (claves enmascaradas como `****`, endpoints reducidos a esquema/host/puerto). Los logs de arranque no contienen credenciales (verificado con `docker-compose logs app`).
+- Las credenciales estáticas de AWS (`access-key-id`/`secret-access-key`) **solo** se usan si ambas están definidas (LocalStack/DynamoDB Local con valores ficticios); en cualquier despliegue real debe aplicar la cadena por defecto de AWS (rol IAM).
+
+### Ciclo de vida (consumer y scheduler)
+
+`SqsOrderConsumer` y `ReservationExpirationScheduler` usan un **token de generación** por arranque: un `stop()` seguido de `start()` mientras el ciclo anterior aún drena ya no deja dos bucles vivos (antes el viejo seguía repitiendo mientras `running` volvía a ser `true`).
+
 ## Endpoints
 
 API reactiva (Spring WebFlux, `Mono`/`Flux`) de eventos, compras asíncronas y disponibilidad. Con `docker-compose up --build` la app escucha en `http://localhost:8080`.
@@ -113,7 +163,7 @@ API reactiva (Spring WebFlux, `Mono`/`Flux`) de eventos, compras asíncronas y d
 | `POST` | `/events` | `201` + cabecera `Location: /events/{id}` + evento creado |
 | `GET` | `/events/{id}` | `200` evento + inventario (`available`, `reserved`, `pendingConfirmation`, `sold`, `complimentary`); `404` si no existe |
 | `GET` | `/events` | `200` lista de eventos **sin inventario** (para los contadores usar `GET /events/{id}`) |
-| `POST` | `/orders` | Cabecera obligatoria `Idempotency-Key`; `202` inmediato + `Location: /orders/{orderId}` + `{orderId, status, reservationExpiresAt}` |
+| `POST` | `/orders` | Cabecera obligatoria `Idempotency-Key` (16-128 caracteres); `202` inmediato + `Location: /orders/{orderId}` + `{orderId, status, reservationExpiresAt}` |
 | `GET` | `/orders/{id}` | `200` estado de la orden (consultable en cualquier momento); `404` si no existe |
 | `POST` | `/events/{id}/complimentary` | **Admin** (cabecera `X-Admin-Key`) + `Idempotency-Key`; body `{quantity (1-1000), reason?}`; `201` + `Location: /orders/{orderId}` + `{orderId, eventId, quantity, status: "COMPLIMENTARY"}` |
 | `GET` | `/events/{id}/availability` | `200` instantánea `{available, reserved, pendingConfirmation, sold, complimentary, capacity}`; `404` si el evento no existe |
@@ -123,19 +173,19 @@ Validación del body de `POST /events`: `name` y `venue` no vacíos (máx. 200),
 
 ### Compras (`POST /orders`)
 
-- **Procesamiento asíncrono**: la petición reserva las entradas (10 min), encola la orden en SQS y responde `202` sin esperar; el consumer la procesa después (`RESERVED -> PENDING_CONFIRMATION -> SOLD`). El progreso se consulta con `GET /orders/{id}`.
-- **`Idempotency-Key`** (obligatoria): no vacía, máximo 128 caracteres, solo `[A-Za-z0-9._:-]`; si no, `400`. Reintentar con la misma clave y el mismo body devuelve la **misma orden** (mismo `orderId`, nada se reserva dos veces); el `status` puede haber avanzado desde la primera respuesta. La misma clave con otro body es `409`.
-- **Body**: `{"eventId": "...", "quantity": 1..10}`. **Límite: máximo 10 entradas por orden** (acota cuánto inventario puede retener una sola petición); `eventId` no vacío.
+- **Procesamiento asíncrono**: la petición reserva las entradas (10 min), encola la orden en SQS y responde `202` sin esperar (reserva + publicación **no se cancelan si el cliente se desconecta**, ver «Seguridad de la aplicación»); el consumer la procesa después (`RESERVED -> PENDING_CONFIRMATION -> SOLD`). El progreso se consulta con `GET /orders/{id}`.
+- **`Idempotency-Key`** (obligatoria): de **16 a 128 caracteres**, solo `[A-Za-z0-9._:-]` (un UUID sirve); si no, `400` (el mensaje no repite el valor recibido). El mínimo existe porque el `orderId` se deriva solo de la clave: una clave corta y adivinable permitiría chocar con la orden de otro cliente o sondearla. Se valida en la capa web (no en el dominio) para poder seguir leyendo órdenes antiguas guardadas con claves más cortas. Reintentar con la misma clave y el mismo body devuelve la **misma orden** (mismo `orderId`, nada se reserva dos veces); el `status` puede haber avanzado desde la primera respuesta. La misma clave con otro body es `409`.
+- **Body**: `{"eventId": "...", "quantity": 1..N}`. **Límite: máximo `ticketflow.orders.max-quantity` entradas por orden** (por defecto 10; acota cuánto inventario puede retener una sola petición): por encima es `400` `validation-error` con la violación de `quantity`. `eventId` no vacío.
 - `reservationExpiresAt` solo aparece mientras la reserva sigue viva (`RESERVED`/`PENDING_CONFIRMATION`); se omite en `SOLD`, `COMPLIMENTARY` y `AVAILABLE`.
 - **Disponibilidad**: `available` descuenta lo vendido **y** lo reservado temporalmente (`reserved`, `pendingConfirmation`); solo `sold` cuenta como venta.
 - **Stream SSE**: si el inventario falla de forma transitoria, el servidor se vuelve a suscribir con backoff exponencial (1 s a 30 s) sin cerrar la conexión del cliente ni enviarle detalles del error.
 
-Errores de esta API: `400` (cabecera `Idempotency-Key` ausente o inválida, body inválido), `404` (orden o evento inexistente), `409` (inventario insuficiente, clave reutilizada con otro payload, orden de esa clave ya liberada: usar una clave nueva), `503` (no se pudo encolar la orden: se puede reintentar con una `Idempotency-Key` **nueva**).
+Errores de esta API: `400` (cabecera `Idempotency-Key` ausente o inválida, body inválido), `404` (orden o evento inexistente, o id con formato imposible), `409` (inventario insuficiente, clave reutilizada con otro payload, orden de esa clave ya liberada: usar una clave nueva), `413` (body demasiado grande), `429` (límite de peticiones), `503` (no se pudo encolar la orden: reintentar con una `Idempotency-Key` **nueva**; o una dependencia está caída/limitando: reintentar tras `Retry-After`).
 
 ```bash
 # Comprar 3 entradas -> 202 + Location (EVENT_ID = id devuelto al crear el evento)
 curl -i -X POST http://localhost:8080/orders -H 'Content-Type: application/json' \
-  -H 'Idempotency-Key: demo-key-1' -d '{"eventId":"EVENT_ID","quantity":3}'
+  -H 'Idempotency-Key: demo-order-key-0001' -d '{"eventId":"EVENT_ID","quantity":3}'
 # HTTP/1.1 202 Accepted
 # Location: /orders/bcb8a659-aedf-562d-a829-8a0d1030a974
 # {"orderId":"bcb8a659-aedf-562d-a829-8a0d1030a974","status":"RESERVED","reservationExpiresAt":"2026-10-03T01:13:26.726661177Z"}
@@ -151,7 +201,7 @@ curl -s http://localhost:8080/events/EVENT_ID/availability
 # Reintento con la misma clave y body -> 202 con la misma orden (el status puede haber avanzado)
 # {"orderId":"bcb8a659-aedf-562d-a829-8a0d1030a974","status":"SOLD"}
 
-# Misma clave con otro body -> 409; sin cabecera -> 400; quantity 11 -> 400
+# Misma clave con otro body -> 409; sin cabecera o clave de menos de 16 caracteres -> 400; quantity 11 -> 400
 # {"...","status":409,"title":"Idempotency-Key reused","type":"urn:ticketflow:problem:idempotency-key-reused"}
 # {"...","status":400,"title":"Invalid Idempotency-Key","type":"urn:ticketflow:problem:invalid-idempotency-key"}
 
@@ -166,14 +216,14 @@ curl -N -H 'Accept: text/event-stream' http://localhost:8080/events/EVENT_ID/ava
 
 Mueve entradas `AVAILABLE -> COMPLIMENTARY` (estado final, **nunca contado como venta**: el contador `complimentary` es independiente de `sold` en inventario, disponibilidad y `GET /events/{id}`). No puede superar el disponible (`409 insufficient-inventory`). Inventario, orden `COMPLIMENTARY` y auditoría (`AVAILABLE -> COMPLIMENTARY`, actor `complimentary-issuance`, `reason` opcional) son un único `TransactWriteItems`; no hay cola ni reserva que expire, y el barrido de expiración y el consumer nunca la tocan. `GET /orders/{orderId}` la muestra como `COMPLIMENTARY`.
 
-- **Seguridad**: la ruta exige la cabecera `X-Admin-Key`, comparada en tiempo constante con el secreto `ticketflow.admin.api-key` (variable `ADMIN_API_KEY`). **Seguro por defecto**: sin clave configurada (o vacía) el endpoint está deshabilitado y responde `403` (`admin-disabled`) a todo; clave ausente o incorrecta -> `401` (`admin-unauthorized`) con texto fijo, sin pistas. La clave nunca se registra ni se versiona. En local, `docker-compose.yml` solo reenvía `ADMIN_API_KEY` (sin valor por defecto): defínala en su `.env` ignorado por git (genere una clave aleatoria, p. ej. con `openssl rand -hex 32`; ver `.env.example`) o en el entorno del shell. En despliegues reales use un gestor de secretos. El filtro `AdminKeyWebFilter` es reutilizable: añada el patrón de otra ruta admin a `ADMIN_ROUTES`.
+- **Seguridad**: la ruta exige la cabecera `X-Admin-Key`, comparada en tiempo constante con el secreto `ticketflow.admin.api-key` (variable `ADMIN_API_KEY`). **Seguro por defecto**: sin clave configurada (o vacía) el endpoint está deshabilitado y responde `403` (`admin-disabled`) a todo; clave ausente o incorrecta -> `401` (`admin-unauthorized`) con texto fijo, sin pistas. La clave nunca se registra ni se versiona. En local, `docker-compose.yml` solo reenvía `ADMIN_API_KEY` (sin valor por defecto): defínala en su `.env` ignorado por git (genere una clave aleatoria, p. ej. con `openssl rand -hex 32`; ver `.env.example`) o en el entorno del shell. En despliegues reales use un gestor de secretos. El filtro `AdminKeyWebFilter` es reutilizable: añada el patrón de otra ruta admin a `ADMIN_ROUTES`. Los intentos fallidos se limitan por cliente (ver «Seguridad de la aplicación»).
 - **Idempotencia**: `Idempotency-Key` obligatoria (misma validación que `POST /orders`). El `orderId` se deriva de la clave en un espacio de nombres propio (una cortesía y una compra con la misma clave nunca colisionan). Misma clave y mismo payload (`quantity`, `reason`) -> `201` con el mismo body y `Location` (se elige `201`, como `POST /orders` repite `202`); distinto payload -> `409 idempotency-key-reused`.
 - `reason` (opcional, máx. 200 caracteres, sin caracteres de control) se guarda como dato en la auditoría; nunca se devuelve ni debe renderizarse como HTML.
 
 ```bash
 # export ADMIN_API_KEY=$(openssl rand -hex 32)   # clave aleatoria solo para desarrollo local; no la versione
 curl -i -X POST http://localhost:8080/events/EVENT_ID/complimentary -H 'Content-Type: application/json' \
-  -H 'Idempotency-Key: comp-1' -H "X-Admin-Key: $ADMIN_API_KEY" -d '{"quantity":2,"reason":"VIP guests"}'
+  -H 'Idempotency-Key: comp-key-0000000001' -H "X-Admin-Key: $ADMIN_API_KEY" -d '{"quantity":2,"reason":"VIP guests"}'
 # HTTP/1.1 201 Created
 # Location: /orders/9b98e91c-ea42-5658-829a-8ac051907723
 # {"orderId":"9b98e91c-...","eventId":"EVENT_ID","quantity":2,"status":"COMPLIMENTARY"}
@@ -192,13 +242,13 @@ Todo error (de dominio, de validación, de Spring, o inesperado) usa **una sola 
 
 | Estado | `type` (`urn:ticketflow:problem:…`) | Cuándo |
 |--------|-------------------------------------|--------|
-| `400` | `validation-error` | Body con campos inválidos (añade `violations`) |
+| `400` | `validation-error` | Body con campos inválidos, incluida una `quantity` por encima del máximo configurado (añade `violations`) |
 | `400` | `malformed-request` | JSON mal formado o tipos/valores ilegibles |
 | `400` | `invalid-event` | Regla de negocio del evento (p. ej. fecha pasada) |
 | `400` | `invalid-idempotency-key` | `Idempotency-Key` ausente o inválida |
 | `400` | `bad-request` | Otro error 400 del framework |
 | `404` | `event-not-found`, `order-not-found` | El evento o la orden no existe |
-| `404` | `not-found` | Ruta inexistente (sin detalles ni la ruta pedida) |
+| `404` | `not-found` | Ruta inexistente, o un id de ruta con formato imposible (no cumple `[A-Za-z0-9._-]{1,64}`): texto fijo, **nunca** repite lo recibido |
 | `405` | `method-not-allowed` | Método HTTP no soportado; conserva la cabecera `Allow` |
 | `406` | `not-acceptable` | `Accept` no satisfacible |
 | `409` | `event-already-exists` | Evento duplicado |
@@ -208,11 +258,14 @@ Todo error (de dominio, de validación, de Spring, o inesperado) usa **una sola 
 | `409` | `concurrent-modification` | Se perdió una carrera de bloqueo optimista del inventario; contención transitoria, **no se aplicó** nada. Lleva `Retry-After: 1` y es seguro reintentar (las compras llevan `Idempotency-Key`) |
 | `409` | `invalid-state-transition`, `order-status-conflict`, `order-already-exists` | Conflictos de estado de la orden |
 | `410` | `reservation-expired` | La reserva expiró y ya no se puede confirmar |
-| `413` | `payload-too-large` | Body por encima del límite del servidor |
+| `413` | `payload-too-large` | Body por encima de `spring.http.codecs.max-in-memory-size` (32 KB) |
 | `415` | `unsupported-media-type` | `Content-Type` no soportado |
-| `429` | `rate-limit-exceeded` | Demasiadas peticiones; lleva `Retry-After` (segundos) cuando se conoce (lo lanzará el rate limiter, F-023) |
+| `429` | `rate-limit-exceeded` | Demasiadas peticiones de escritura del cliente, o demasiados intentos **fallidos** de `X-Admin-Key`; lleva `Retry-After` (segundos, calculado del bucket) |
 | `500` | `internal-error` | Cualquier error no previsto (texto fijo) |
 | `503` | `order-enqueue-failed` | No se pudo encolar la orden: reintentar con una `Idempotency-Key` **nueva** |
+| `503` | `service-unavailable` | Una dependencia (DynamoDB, SQS) limita, expira o no responde y los reintentos del adaptador se agotaron (throttling, `SdkClientException`, `TimeoutException`, transacciones en conflicto). Lleva `Retry-After: 5`; texto fijo, sin detalles internos. Los conflictos de negocio nunca se reclasifican como 503 |
+
+**Errores que Netty rechaza antes de llegar a la aplicación** (URL mal formada como `/%zz`, caracteres ilegales en cabeceras, línea de petición inválida) devuelven un `400` **vacío, sin `X-Correlation-Id` ni cabeceras de seguridad**: ningún filtro de la aplicación llega a ejecutarse. Es esperado; si hace falta uniformarlo, se hace en el borde (ver más abajo).
 
 Por qué `409` y no `503` para la contención de inventario: la petición chocó con un cambio concurrente y no se aplicó; `503` se reserva para "el servicio no puede aceptar trabajo" (cola caída). **Reintentos**: la capa web no reintenta nada (no puede saber si una petición es repetible); los reintentos con `Retry.backoff` viven en los adaptadores y solo para errores transitorios (p. ej. el publisher SQS), y al cliente se le indica cuándo reintentar con `Retry-After`.
 

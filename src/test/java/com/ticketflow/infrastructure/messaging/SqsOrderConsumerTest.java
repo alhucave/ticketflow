@@ -416,4 +416,53 @@ class SqsOrderConsumerTest {
         assertThat(consumer.isRunning()).isTrue();
         verify(client, times(2)).receiveMessage(any(ReceiveMessageRequest.class));
     }
+
+    @Test
+    void restart_duringDrain_oldLoopEndsAfterItsBatchAndOnlyTheNewLoopPolls() {
+        var processing = Sinks.<ProcessOrderResult>one();
+        when(useCase.execute(new OrderId("o1"))).thenReturn(processing.asMono());
+        queueBatch(valid("o1"));
+        consumer(props(10, 4)).start(); // loop A: o1 in flight
+
+        var stopped = new AtomicBoolean();
+        consumer.stop(() -> stopped.set(true)); // A is draining
+        consumer.start();                        // loop B starts while A still drains
+        assertThat(consumer.isRunning()).isTrue();
+        assertThat(parked).hasSize(1);           // B is long polling
+
+        processing.tryEmitValue(sold("o1"));     // A's batch finishes
+
+        assertThat(deletedHandles()).containsExactly("rh-m-o1");
+        assertThat(stopped).isTrue();            // the drain completed
+        // A did not poll again even though `running` is true again: one poll by A, one (parked) by B.
+        verify(client, times(2)).receiveMessage(any(ReceiveMessageRequest.class));
+        assertThat(parked).hasSize(1);
+
+        // B is fully functional and alone.
+        when(useCase.execute(new OrderId("o2"))).thenReturn(Mono.just(sold("o2")));
+        parked.get(0).complete(ReceiveMessageResponse.builder().messages(valid("o2")).build());
+        assertThat(deletedHandles()).containsExactly("rh-m-o1", "rh-m-o2");
+        verify(useCase, times(1)).execute(new OrderId("o2"));
+        verify(client, times(3)).receiveMessage(any(ReceiveMessageRequest.class)); // only B continues
+    }
+
+    @Test
+    void restart_manyTimesDuringOneDrain_stillLeavesExactlyOneLoop() {
+        var processing = Sinks.<ProcessOrderResult>one();
+        when(useCase.execute(new OrderId("o1"))).thenReturn(processing.asMono());
+        queueBatch(valid("o1"));
+        consumer(props(10, 4)).start();
+
+        for (int i = 0; i < 3; i++) {
+            consumer.stop();
+            consumer.start();
+        }
+        processing.tryEmitValue(sold("o1"));
+
+        // 1 (first loop) + 3 (one per restart); the drained loops never polled again, and the long polls of
+        // the stopped generations were cancelled, so exactly one stays parked.
+        verify(client, times(4)).receiveMessage(any(ReceiveMessageRequest.class));
+        assertThat(parked).hasSize(3);
+        assertThat(parked.stream().filter(future -> !future.isCancelled())).hasSize(1);
+    }
 }

@@ -10,8 +10,10 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  * <p>The orders queue is identified either by {@code ordersQueueUrl} (used as is) or by
  * {@code ordersQueueName}, which is resolved to a URL lazily on first publish. When
  * {@code accessKeyId} and {@code secretAccessKey} are both set, static credentials are used (local
- * development only); otherwise the AWS default credentials provider chain applies. A null
- * {@code endpoint} means the real AWS endpoint of the region.
+ * development with LocalStack only, dummy values); otherwise the AWS default credentials provider chain
+ * applies (IAM role, environment, profile), which is what a real deployment must use. A null
+ * {@code endpoint} means the real AWS endpoint of the region. {@link #toString()} masks both keys and
+ * strips endpoint and queue URL to scheme, host and port.
  */
 @ConfigurationProperties(prefix = "ticketflow.sqs")
 public record SqsProperties(
@@ -21,6 +23,15 @@ public record SqsProperties(
         String secretAccessKey,
         @DefaultValue("orders") String ordersQueueName,
         String ordersQueueUrl) {
+
+    @Override
+    public String toString() {
+        return "SqsProperties[endpoint=" + SecretMasking.endpoint(endpoint) + ", region=" + region
+                + ", accessKeyId=" + SecretMasking.secret(accessKeyId)
+                + ", secretAccessKey=" + SecretMasking.secret(secretAccessKey)
+                + ", ordersQueueName=" + ordersQueueName
+                + ", ordersQueueUrl=" + (ordersQueueUrl == null ? null : SecretMasking.MASK) + "]";
+    }
 
     public boolean hasStaticCredentials() {
         return accessKeyId != null && !accessKeyId.isBlank()

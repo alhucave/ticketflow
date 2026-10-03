@@ -19,8 +19,11 @@ import com.ticketflow.domain.model.OrderId;
 import com.ticketflow.domain.model.Quantity;
 import com.ticketflow.domain.model.TicketStatus;
 import com.ticketflow.infrastructure.web.InvalidIdempotencyKeyException;
+import com.ticketflow.infrastructure.web.InvalidPathIdException;
+import com.ticketflow.infrastructure.web.InvalidRequestFieldException;
 import java.time.Duration;
 import java.util.Map;
+import java.util.concurrent.TimeoutException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
@@ -32,8 +35,15 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
+import reactor.core.Exceptions;
 import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
+import software.amazon.awssdk.awscore.exception.AwsServiceException;
+import software.amazon.awssdk.core.exception.SdkClientException;
+import software.amazon.awssdk.services.dynamodb.model.CancellationReason;
+import software.amazon.awssdk.services.dynamodb.model.ConditionalCheckFailedException;
+import software.amazon.awssdk.services.dynamodb.model.ProvisionedThroughputExceededException;
+import software.amazon.awssdk.services.dynamodb.model.TransactionCanceledException;
 
 /** Test-only controller that throws arbitrary exceptions so every mapping can be exercised over HTTP. */
 @RestController
@@ -87,6 +97,18 @@ class ErrorProbeController {
             case "order-exists" -> new OrderAlreadyExistsException(new OrderId("ord-1"));
             case "rate-limit" -> new RateLimitExceededException(Duration.ofMillis(1500));
             case "rate-limit-unknown" -> new RateLimitExceededException();
+            case "bad-path-id" -> new InvalidPathIdException();
+            case "bad-field" -> new InvalidRequestFieldException("quantity", "must be less than or equal to 3");
+            case "throttled" -> ProvisionedThroughputExceededException.builder().message(SECRET).build();
+            case "aws-503" -> AwsServiceException.builder().message(SECRET).statusCode(503).build();
+            case "aws-429" -> AwsServiceException.builder().message(SECRET).statusCode(429).build();
+            case "aws-400" -> AwsServiceException.builder().message(SECRET).statusCode(400).build();
+            case "conditional-failed" -> ConditionalCheckFailedException.builder().message(SECRET).build();
+            case "tx-conflict" -> TransactionCanceledException.builder().message(SECRET).cancellationReasons(
+                    CancellationReason.builder().code("TransactionConflict").build()).build();
+            case "sdk-client" -> SdkClientException.create(SECRET);
+            case "timeout" -> new TimeoutException(SECRET);
+            case "retry-exhausted" -> Exceptions.retryExhausted(SECRET, new IllegalStateException(SECRET));
             case "status-418" -> new ResponseStatusException(HttpStatus.I_AM_A_TEAPOT, SECRET);
             case "status-503" -> new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, SECRET);
             case "status-413" -> new ResponseStatusException(HttpStatus.PAYLOAD_TOO_LARGE, SECRET);

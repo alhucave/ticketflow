@@ -5,6 +5,7 @@ import com.ticketflow.infrastructure.config.SqsConsumerProperties;
 import com.ticketflow.usecase.ProcessOrderResult;
 import com.ticketflow.usecase.ProcessOrderUseCase;
 import java.util.concurrent.TimeoutException;
+import java.util.function.BooleanSupplier;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.SmartLifecycle;
@@ -46,6 +47,11 @@ import tools.jackson.databind.json.JsonMapper;
  * messages simply reappear), lets messages already received finish for at most
  * {@code shutdownTimeout}, then disposes the loop.
  *
+ * <p><b>Restart.</b> Each {@code start()} gets a new generation number captured by its loop: a loop only
+ * repeats while it is still the current generation, so a {@code stop()} + {@code start()} during a drain
+ * can never leave the old loop polling next to the new one (the old one finishes its in-flight batch and
+ * ends).
+ *
  * <p>Logs never include message bodies.
  */
 public final class SqsOrderConsumer implements SmartLifecycle {
@@ -63,6 +69,8 @@ public final class SqsOrderConsumer implements SmartLifecycle {
     private Sinks.Empty<Void> stopSignal;
     private Sinks.Empty<Void> terminated;
     private volatile boolean running;
+    /** Incremented by every start(); a loop is alive only while its captured value is the current one. */
+    private volatile long generation;
 
     public SqsOrderConsumer(SqsAsyncClient client, Mono<String> queueUrl, ProcessOrderUseCase useCase,
                             SqsConsumerProperties properties) {
@@ -84,11 +92,12 @@ public final class SqsOrderConsumer implements SmartLifecycle {
             return;
         }
         running = true;
+        long myGeneration = ++generation;
         stopSignal = Sinks.empty();
         terminated = Sinks.empty();
         Mono<Void> stop = stopSignal.asMono();
         Sinks.Empty<Void> done = terminated;
-        subscription = pollingLoop(stop)
+        subscription = pollingLoop(stop, () -> running && generation == myGeneration)
                 .doFinally(signal -> done.tryEmitEmpty())
                 .subscribe(null, error -> LOG.error("SQS order consumer terminated unexpectedly", error));
         LOG.info("SQS order consumer started (batchSize={}, concurrency={}, waitTime={}, visibilityTimeout={})",
@@ -133,9 +142,9 @@ public final class SqsOrderConsumer implements SmartLifecycle {
     }
 
     /** Endless poll -> process loop; ends only after {@code stop} fires (or on disposal). */
-    Flux<Void> pollingLoop(Mono<Void> stop) {
+    Flux<Void> pollingLoop(Mono<Void> stop, BooleanSupplier alive) {
         return Flux.defer(() -> pollOnce(stop))
-                .repeat(() -> running)
+                .repeat(alive::getAsBoolean)
                 // Defensive: nothing in the loop is expected to fail, but it must never die silently.
                 .retryWhen(backoff("Polling loop failed"));
     }

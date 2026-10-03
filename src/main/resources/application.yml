@@ -1,6 +1,11 @@
 spring:
   application:
     name: ticketflow
+  http:
+    codecs:
+      # Largest request body buffered in memory: bigger bodies are answered 413 (payload-too-large).
+      # Every JSON body of this API is well under 1 KB; 32 KB leaves ample room.
+      max-in-memory-size: 32KB
 management:
   endpoints:
     web:
@@ -10,6 +15,9 @@ ticketflow:
   admin:
     # Secret for admin routes (X-Admin-Key). Never commit a value: empty (default) disables them (403).
     api-key: ${ADMIN_API_KEY:}
+  orders:
+    # Most tickets one order may hold (POST /orders answers 400 above it).
+    max-quantity: 10
   sqs:
     # Overridable from the environment; endpoint/credentials are set only for local development.
     orders-queue-name: ${ORDERS_QUEUE_NAME:orders}
