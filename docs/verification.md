@@ -9,6 +9,10 @@ Una feature está verificada cuando `./init.sh` termina en verde y cada criterio
    - Falla si la cobertura de líneas global baja del **90%**.
 3. Si aún no existe `./gradlew` (antes de la feature F-001), solo corre el paso 1 e informa `BOOTSTRAP`.
 
+## Verificación de la cadena de suministro
+
+No forma parte de `./init.sh` (necesita Docker y red), pero es obligatoria en CI: `.github/workflows/security.yml` (Trivy sobre `gradle.lockfile` y sobre la imagen, gitleaks sobre el historial). `./init.sh` sí compila con el bloqueo de dependencias: tras cambiar una versión, `./gradlew dependencies --write-locks`. Comandos para ejecutar los escaneos en local: `docs/security.md`.
+
 ## Niveles de prueba
 
 | Nivel | Herramientas | Qué cubre |

@@ -12,11 +12,13 @@ Plataforma reactiva de procesamiento de eventos de ticketing (Java 25, Spring Bo
   ```
   En el CI de GitHub no hace falta.
 - `.github/workflows/ci.yml` corre `./init.sh` en cada PR y push a `main` y sube los reportes como artefacto.
+- `.github/workflows/security.yml` (PR, push a `main` y semanal): escaneo de vulnerabilidades de dependencias (Trivy sobre `gradle.lockfile`) y de la imagen, y escaneo de secretos (gitleaks, historial completo). Independiente del job obligatorio `verify`. Detalle y cómo ejecutarlos en local: [`docs/security.md`](docs/security.md).
+- Las dependencias están **bloqueadas** (`gradle.lockfile`): al cambiar una versión ejecute `./gradlew dependencies --write-locks` y versione el lockfile (si no, el build falla). Dependabot (`.github/dependabot.yml`) propone actualizaciones semanales de Gradle, GitHub Actions y la imagen base.
 - `.github/workflows/release.yml` publica `ghcr.io/alhucave/ticketflow` al empujar un tag `v*`.
 
 ## Infraestructura local con Docker Compose
 
-`docker-compose.yml` levanta tres servicios: `app` (Dockerfile multi-stage, usuario no root), `dynamodb` (DynamoDB Local) y `localstack` (SQS). Requiere Docker y Compose (`docker compose` o el binario `docker-compose`).
+`docker-compose.yml` levanta tres servicios: `app` (Dockerfile multi-stage, runtime distroless solo JRE, usuario no root), `dynamodb` (DynamoDB Local) y `localstack` (SQS). Requiere Docker y Compose (`docker compose` o el binario `docker-compose`).
 
 ```bash
 cp .env.example .env        # opcional: los valores por defecto ya funcionan
@@ -26,13 +28,14 @@ docker-compose down -v      # detiene y elimina contenedores y volúmenes
 
 | Servicio | Puerto | Notas |
 |----------|--------|-------|
-| app | 8080 | `GET /actuator/health` |
-| dynamodb | 8000 | `amazon/dynamodb-local:3.3.1`, en memoria |
-| localstack | 4566 | `localstack/localstack:4.14.0`, solo SQS |
+| app | 127.0.0.1:8080 | `GET /actuator/health` |
+| dynamodb | 127.0.0.1:8000 | `amazon/dynamodb-local:3.3.1`, en memoria |
+| localstack | 127.0.0.1:4566 | `localstack/localstack:4.14.0`, solo SQS |
 
 - Al arrancar, `docker/localstack/init-queues.sh` crea la cola `orders` y su DLQ `orders-dlq` (redrive policy con `maxReceiveCount=3`). El healthcheck de LocalStack solo pasa cuando el script terminó, y `app` espera a que `dynamodb` y `localstack` estén healthy.
 - Verificar colas: `docker-compose exec localstack awslocal sqs list-queues`.
 - Las imágenes tienen tag fijo (sin `:latest`). LocalStack se fija en `4.14.0` porque las versiones `2026.x` exigen `LOCALSTACK_AUTH_TOKEN`.
+- **Endurecido**: puertos solo en `127.0.0.1` (DynamoDB Local y LocalStack no tienen autenticación), sistema de ficheros de solo lectura (`tmpfs` para `/tmp`), `cap_drop: ALL`, `no-new-privileges`, límites de memoria/CPU/pids y `restart`. Detalle y excepciones en [`docs/security.md`](docs/security.md#endurecimiento-de-contenedores). La imagen no tiene shell: para depurar use `docker-compose logs`/`docker inspect`.
 - Solo se usan credenciales dummy (`test`/`test`). `.env` está en `.gitignore`; nunca commitees secretos.
 
 ## Configuración de DynamoDB
@@ -104,9 +107,9 @@ Garantías:
 
 - `ticketflow.availability.poll-interval` (por defecto `1s`): cada cuánto consulta el inventario el flujo de disponibilidad. Se puede fijar con la variable de entorno `TICKETFLOW_AVAILABILITY_POLL_INTERVAL`.
 
-## Seguridad de la aplicación (F-023, parte 1)
+## Seguridad
 
-Endurecimiento a nivel de aplicación. (La parte 2 —escaneo de dependencias y secretos en CI, Dependabot, endurecimiento de compose/imagen y `docs/security.md`— llega en otra entrega.)
+Modelo de amenazas, escaneos de la cadena de suministro, endurecimiento de contenedores y limitaciones conocidas: [`docs/security.md`](docs/security.md). Para reportar una vulnerabilidad: [`SECURITY.md`](SECURITY.md). A continuación, los controles a nivel de aplicación (F-023, parte 1).
 
 ### Rate limiting por cliente
 
@@ -173,7 +176,7 @@ Validación del body de `POST /events`: `name` y `venue` no vacíos (máx. 200),
 
 ### Compras (`POST /orders`)
 
-- **Procesamiento asíncrono**: la petición reserva las entradas (10 min), encola la orden en SQS y responde `202` sin esperar (reserva + publicación **no se cancelan si el cliente se desconecta**, ver «Seguridad de la aplicación»); el consumer la procesa después (`RESERVED -> PENDING_CONFIRMATION -> SOLD`). El progreso se consulta con `GET /orders/{id}`.
+- **Procesamiento asíncrono**: la petición reserva las entradas (10 min), encola la orden en SQS y responde `202` sin esperar (reserva + publicación **no se cancelan si el cliente se desconecta**, ver «Seguridad»); el consumer la procesa después (`RESERVED -> PENDING_CONFIRMATION -> SOLD`). El progreso se consulta con `GET /orders/{id}`.
 - **`Idempotency-Key`** (obligatoria): de **16 a 128 caracteres**, solo `[A-Za-z0-9._:-]` (un UUID sirve); si no, `400` (el mensaje no repite el valor recibido). El mínimo existe porque el `orderId` se deriva solo de la clave: una clave corta y adivinable permitiría chocar con la orden de otro cliente o sondearla. Se valida en la capa web (no en el dominio) para poder seguir leyendo órdenes antiguas guardadas con claves más cortas. Reintentar con la misma clave y el mismo body devuelve la **misma orden** (mismo `orderId`, nada se reserva dos veces); el `status` puede haber avanzado desde la primera respuesta. La misma clave con otro body es `409`.
 - **Body**: `{"eventId": "...", "quantity": 1..N}`. **Límite: máximo `ticketflow.orders.max-quantity` entradas por orden** (por defecto 10; acota cuánto inventario puede retener una sola petición): por encima es `400` `validation-error` con la violación de `quantity`. `eventId` no vacío.
 - `reservationExpiresAt` solo aparece mientras la reserva sigue viva (`RESERVED`/`PENDING_CONFIRMATION`); se omite en `SOLD`, `COMPLIMENTARY` y `AVAILABLE`.
@@ -216,7 +219,7 @@ curl -N -H 'Accept: text/event-stream' http://localhost:8080/events/EVENT_ID/ava
 
 Mueve entradas `AVAILABLE -> COMPLIMENTARY` (estado final, **nunca contado como venta**: el contador `complimentary` es independiente de `sold` en inventario, disponibilidad y `GET /events/{id}`). No puede superar el disponible (`409 insufficient-inventory`). Inventario, orden `COMPLIMENTARY` y auditoría (`AVAILABLE -> COMPLIMENTARY`, actor `complimentary-issuance`, `reason` opcional) son un único `TransactWriteItems`; no hay cola ni reserva que expire, y el barrido de expiración y el consumer nunca la tocan. `GET /orders/{orderId}` la muestra como `COMPLIMENTARY`.
 
-- **Seguridad**: la ruta exige la cabecera `X-Admin-Key`, comparada en tiempo constante con el secreto `ticketflow.admin.api-key` (variable `ADMIN_API_KEY`). **Seguro por defecto**: sin clave configurada (o vacía) el endpoint está deshabilitado y responde `403` (`admin-disabled`) a todo; clave ausente o incorrecta -> `401` (`admin-unauthorized`) con texto fijo, sin pistas. La clave nunca se registra ni se versiona. En local, `docker-compose.yml` solo reenvía `ADMIN_API_KEY` (sin valor por defecto): defínala en su `.env` ignorado por git (genere una clave aleatoria, p. ej. con `openssl rand -hex 32`; ver `.env.example`) o en el entorno del shell. En despliegues reales use un gestor de secretos. El filtro `AdminKeyWebFilter` es reutilizable: añada el patrón de otra ruta admin a `ADMIN_ROUTES`. Los intentos fallidos se limitan por cliente (ver «Seguridad de la aplicación»).
+- **Seguridad**: la ruta exige la cabecera `X-Admin-Key`, comparada en tiempo constante con el secreto `ticketflow.admin.api-key` (variable `ADMIN_API_KEY`). **Seguro por defecto**: sin clave configurada (o vacía) el endpoint está deshabilitado y responde `403` (`admin-disabled`) a todo; clave ausente o incorrecta -> `401` (`admin-unauthorized`) con texto fijo, sin pistas. La clave nunca se registra ni se versiona. En local, `docker-compose.yml` solo reenvía `ADMIN_API_KEY` (sin valor por defecto): defínala en su `.env` ignorado por git (genere una clave aleatoria, p. ej. con `openssl rand -hex 32`; ver `.env.example`) o en el entorno del shell. En despliegues reales use un gestor de secretos. El filtro `AdminKeyWebFilter` es reutilizable: añada el patrón de otra ruta admin a `ADMIN_ROUTES`. Los intentos fallidos se limitan por cliente (ver «Seguridad»).
 - **Idempotencia**: `Idempotency-Key` obligatoria (misma validación que `POST /orders`). El `orderId` se deriva de la clave en un espacio de nombres propio (una cortesía y una compra con la misma clave nunca colisionan). Misma clave y mismo payload (`quantity`, `reason`) -> `201` con el mismo body y `Location` (se elige `201`, como `POST /orders` repite `202`); distinto payload -> `409 idempotency-key-reused`.
 - `reason` (opcional, máx. 200 caracteres, sin caracteres de control) se guarda como dato en la auditoría; nunca se devuelve ni debe renderizarse como HTML.
 

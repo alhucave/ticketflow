@@ -1,11 +1,23 @@
 # Local infrastructure: app + DynamoDB Local + LocalStack (SQS).
 # Usage: docker-compose up --build   (see README). Defaults work without a .env file.
+# Hardening (see docs/security.md): ports bound to 127.0.0.1 only, cap_drop ALL, no-new-privileges, read-only root
+# filesystem where the image allows it, memory/cpu/pids limits, restart policy. Dummy credentials only.
 services:
   dynamodb:
     image: amazon/dynamodb-local:3.3.1
     command: ["-jar", "DynamoDBLocal.jar", "-sharedDb", "-inMemory"]
     ports:
-      - "${DYNAMODB_PORT:-8000}:8000"
+      - "127.0.0.1:${DYNAMODB_PORT:-8000}:8000"
+    read_only: true
+    tmpfs:
+      # exec is required: DynamoDB Local extracts its SQLite native library to /tmp and mmaps it (tmpfs is noexec by default).
+      - /tmp:rw,exec,nosuid,nodev
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 768m
+    cpus: 1.0
+    pids_limit: 256
+    restart: unless-stopped
     healthcheck:
       # Any HTTP response means the server is up (curl exits 0 without -f).
       test: ["CMD-SHELL", "curl -s -o /dev/null http://localhost:8000/ || exit 1"]
@@ -23,7 +35,20 @@ services:
       ORDERS_DLQ_NAME: ${ORDERS_DLQ_NAME:-orders-dlq}
       ORDERS_MAX_RECEIVE_COUNT: ${ORDERS_MAX_RECEIVE_COUNT:-3}
     ports:
-      - "${LOCALSTACK_PORT:-4566}:4566"
+      - "127.0.0.1:${LOCALSTACK_PORT:-4566}:4566"
+    # LocalStack runs as root and writes its state/cache under /var/lib/localstack and /tmp: both tmpfs, so the
+    # root filesystem stays read-only and nothing persists (SQS state is disposable local data anyway).
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /var/lib/localstack
+      - /root/.cache
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 1536m
+    cpus: 2.0
+    pids_limit: 1024
+    restart: unless-stopped
     volumes:
       - ./docker/localstack/init-queues.sh:/etc/localstack/init/ready.d/init-queues.sh:ro
     healthcheck:
@@ -37,7 +62,17 @@ services:
     build: .
     image: ticketflow:local
     ports:
-      - "${APP_PORT:-8080}:8080"
+      - "127.0.0.1:${APP_PORT:-8080}:8080"
+    # The distroless image runs as non-root (uid 65532); the JVM only needs a writable /tmp (tmpfs).
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    mem_limit: 512m
+    cpus: 1.0
+    pids_limit: 200
+    restart: unless-stopped
     environment:
       AWS_REGION: ${AWS_REGION:-us-east-1}
       AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-test}
@@ -70,13 +105,8 @@ services:
       localstack:
         condition: service_healthy
     healthcheck:
-      # The JRE image has no curl: probe the actuator endpoint over bash /dev/tcp (dash has no /dev/tcp).
-      test:
-        - CMD
-        - bash
-        - -c
-        - exec 3<>/dev/tcp/localhost/8080 && printf 'GET /actuator/health HTTP/1.0\r\n\r\n' >&3 && head -n1 <&3 | grep -q ' 200'
-      interval: 5s
-      timeout: 3s
-      start_period: 20s
+      # The probe command comes from the image HEALTHCHECK (Java probe, the distroless image has no shell/curl).
+      interval: 10s
+      timeout: 5s
+      start_period: 30s
       retries: 12

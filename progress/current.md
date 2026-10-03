@@ -1,5 +1,5 @@
 # Estado actual
 
-Feature en curso: F-023 (parte 1 aprobada, pendiente parte 2: CI scans, dependabot, compose/contenedor, docs/security.md)
-Ultimas completadas: F-001 a F-021 (APPROVED)
-Siguiente: F-023 parte 2, luego F-024, F-022, F-025, F-026
+Feature en curso: ninguna
+Ultimas completadas: F-001 a F-021 y F-023 (APPROVED)
+Siguiente: F-024 (observability), F-022 (concurrency-tests, al final para validar el comportamiento definitivo), F-025 (docs-and-requests), F-026 (AWS docs)

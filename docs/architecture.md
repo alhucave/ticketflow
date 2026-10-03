@@ -71,7 +71,7 @@ Invariante: `available + reserved + pendingConfirmation + sold + complimentary =
 
 ## Endurecimiento de la aplicación (F-023, parte 1)
 
-Detalle y propiedades en el README («Seguridad de la aplicación»). Resumen de diseño:
+Detalle y propiedades en el README («Seguridad»). Resumen de diseño:
 
 - **Orden de filtros** (`WebFilter`, de fuera a dentro): `CorrelationIdWebFilter` (MIN) -> `SecurityHeadersWebFilter` (+5) -> `RateLimitWebFilter` (+15) -> `AdminKeyWebFilter` (+20). Los errores de los filtros los renderiza `ProblemWebExceptionHandler`, así que un `429` lleva correlation id y cabeceras de seguridad.
 - **Rate limiting** (`infrastructure.web.ratelimit`): `TokenBucket` + `ClientRateLimiter` (Caffeine con tamaño máximo y expiración por inactividad, estado por instancia) + `ClientAddressResolver` (socket por defecto; `X-Forwarded-For` solo con `trust-forwarded-for`, última entrada, IP literal validada). Dos limitadores: escrituras por cliente y intentos fallidos de `X-Admin-Key`. Un despliegue real necesita además una capa de borde (F-026).
