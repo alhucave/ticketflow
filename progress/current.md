@@ -1,4 +1,5 @@
 # Estado actual
 
-Feature en curso: F-016 — sqs-consumer (implementada, pendiente de review; ver progress/impl_sqs-consumer.md)
-Ultimas completadas: F-001 a F-015 (APPROVED)
+Feature en curso: ninguna
+Ultimas completadas: F-001 a F-016 (APPROVED). Fase 5 completa.
+Siguiente: F-017 — reservation-expiration-job (Fase 6)
