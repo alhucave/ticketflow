@@ -420,7 +420,7 @@ La carpeta [`requests/`](requests/) contiene:
 
 | Fichero | Para qué |
 |---------|----------|
-| `ticketflow.postman_collection.json` | Colección de Postman v2.1 (31 peticiones, 63 aserciones): crear/consultar/listar eventos, disponibilidad (instantánea y stream), compra, *polling* hasta `SOLD`, replay, clave reutilizada (`409`), inventario insuficiente (`409`), errores de validación (`400`) e ids inexistentes (`404`), cortesías con y sin clave de admin, sondas y Prometheus en el puerto de gestión |
+| `ticketflow.postman_collection.json` | Colección de Postman v2.1 (32 peticiones y 65 aserciones definidas; `run-newman.sh` ejecuta 31 y 63, porque omite el stream SSE, que no termina nunca): crear/consultar/listar eventos, disponibilidad (instantánea y stream), compra, *polling* hasta `SOLD`, replay, clave reutilizada (`409`), inventario insuficiente (`409`), errores de validación (`400`) e ids inexistentes (`404`), cortesías con y sin clave de admin, sondas y Prometheus en el puerto de gestión |
 | `ticketflow.local.postman_environment.json` | Entorno de Postman: `baseUrl`, `managementUrl`, `adminKey` (rellénela con su `ADMIN_API_KEY`; es de tipo `secret`, no la suba a git) |
 | `run-newman.sh` | Ejecuta la colección con Newman en Docker contra la pila de compose |
 | `demo.sh` | Flujo principal de extremo a extremo con `curl`, con salida legible |

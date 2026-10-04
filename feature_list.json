@@ -583,7 +583,7 @@
     "id": "F-027",
     "name": "spec-traceability-and-decisions-register",
     "phase": 10,
-    "status": "in_progress",
+    "status": "done",
     "depends_on": [
       "F-026"
     ],

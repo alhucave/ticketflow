@@ -1,9 +1,5 @@
 # Estado actual
 
-Feature en curso: F-027 — spec-traceability-and-decisions-register
-Plan:
-- Matriz de trazabilidad `docs/requirements.md` derivada del PDF original (ítem por ítem, con estado, dónde y evidencia).
-- Registro `docs/decisions.md` (DP-NNN) sembrado con las decisiones reales, verificadas contra código e historial.
-- `feature_list.json`: campo `origin` en todas las features y `decisions` en las no-`spec`; validación mecánica en `init.sh` (con controles negativos).
-- `CHECKPOINTS.md` (C13), `AGENTS.md`, `.github/pull_request_template.md` y enlaces desde README.
-- Solo documentación y arnés: ningún cambio en `src/`, build, Dockerfile, compose ni workflows.
+Feature en curso: ninguna
+Completas: F-001 a F-027 (27/27), repo privado.
+Hallazgos abiertos para decidir con el usuario (ver progress/history.md): test inestable en CI (HardeningEndToEndIT, timeout 5 s), TTL de reserva sin tope de 10 min, consumidor/expiracion apagados por defecto, release.yml sin ejecutar.
