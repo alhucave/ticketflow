@@ -185,6 +185,56 @@ if [ "${1:-}" = "--check-registry" ]; then
   exit 0
 fi
 
+# CI runner pinning (F-029, DP-036): no workflow may use a floating runner label (`ubuntu-latest`, `macos-latest`...).
+# Stdlib only (no YAML parser available), so it reads each `runs-on` line and, for list or mapping forms, the more
+# indented lines under it. A `${{ ... }}` expression cannot be resolved statically, so it is reported as a failure.
+# `./init.sh --check-runners` runs only the fast checks up to this one and exits.
+echo "==> Validating CI runner images are pinned (no -latest labels)"
+python3 - <<'PY'
+import glob, re, sys
+
+errors, checked = [], 0
+for path in sorted(glob.glob(".github/workflows/*.yml") + glob.glob(".github/workflows/*.yaml")):
+    lines = open(path, encoding="utf-8").read().splitlines()
+    for i, raw in enumerate(lines):
+        m = re.match(r"^(\s*)(?:-\s+)?runs-on\s*:(.*)$", raw)
+        if not m:
+            continue
+        indent, rest = len(m.group(1)), re.sub(r"\s+#.*$", "", m.group(2)).strip()
+        where = f"{path}:{i + 1}"
+        tokens = [rest] if rest else []
+        if not rest:                       # block list or mapping (group/labels): take the more indented lines
+            for nxt in lines[i + 1:]:
+                if not nxt.strip() or nxt.lstrip().startswith("#"):
+                    continue
+                if len(nxt) - len(nxt.lstrip()) <= indent:
+                    break
+                tokens.append(re.sub(r"\s+#.*$", "", nxt).strip())
+        text = " ".join(tokens)
+        checked += 1
+        if not text:
+            errors.append(f"{where}: runs-on has no value; cannot verify the runner image")
+            continue
+        if "${{" in text:
+            errors.append(f"{where}: runs-on uses an expression ({text}); cannot verify it is pinned, use a literal label")
+            continue
+        for label in re.split(r"[\s,\[\]{}]+", text):
+            label = label.strip("'\"")
+            label = re.sub(r"^(-|group:|labels:)$", "", label)
+            if re.search(r"-latest($|-)", label):
+                errors.append(f"{where}: floating runner label '{label}'; pin an explicit image such as ubuntu-24.04 (see docs/verification.md, DP-036)")
+if errors:
+    print("FAIL: unpinned CI runner image", file=sys.stderr)
+    for e in errors:
+        print("  - " + e, file=sys.stderr)
+    sys.exit(1)
+print(f"OK: {checked} runs-on entries, none uses a floating label")
+PY
+
+if [ "${1:-}" = "--check-runners" ]; then
+  exit 0
+fi
+
 if [ ! -x ./gradlew ]; then
   echo "BOOTSTRAP: no ./gradlew yet (feature F-001 pending). Skipping build."
   exit 0
