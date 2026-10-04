@@ -601,5 +601,28 @@
       "CHECKPOINTS.md (new checkpoint C13), AGENTS.md (workflow) and .github/pull_request_template.md make the register part of every feature/PR",
       "README links both documents; every path/link in the new docs resolves; no application code changed"
     ]
+  },
+  {
+    "id": "F-028",
+    "name": "stabilize-integration-tests",
+    "phase": 10,
+    "status": "done",
+    "depends_on": [
+      "F-027"
+    ],
+    "issue": 58,
+    "origin": "own",
+    "decisions": [
+      "DP-035"
+    ],
+    "title": "Stabilize the integration tests (CI timeouts)",
+    "description": "Outcome of the investigation of the CI failure of run 37128517785 (HardeningEndToEndIT.securityHeaders_...): the initial hypothesis (default 5 s WebTestClient timeout) was REFUTED by the CI report artifact: the class already had a 30 s timeout, the failing call was the last trivial request (GET /actuator/health -> 404) and it received no response at all in 30 s (the test normally takes 0.27 s). The real hang was NOT reproduced and its cause is UNKNOWN (tracked in F-033 / issue #63). What this feature does deliver (test-only): one shared timeout policy for every WebTestClient (property spring.test.webtestclient.timeout=60s for injected clients, TestWebClients for hand-built ones, shared constants in TestTimeouts), an audit of the other fixed waits, a guard test that fails when a test breaks the policy, and a defensive fix (read the response body so pooled connections are returned). It removes a source of false failures; it does NOT prevent the observed hang.",
+    "acceptance": [
+      "Root cause of the 5 s hypothesis checked against the CI artifact and refuted; the observed failure documented as an unexplained 30 s no-response hang",
+      "Every WebTestClient used by the tests goes through one shared timeout mechanism; other fixed waits audited; no assertion weakened; guard test in place",
+      "No production code change",
+      "Stability evidence by execution: full integration suite green several times in a row and once under CPU load; the 5 s failure mode reproduced deterministically with a negative control (the original 30 s hang was not reproduced)",
+      "Registered as DP-035 in docs/decisions.md and linked from feature_list.json (origin own); the unexplained hang is followed up in F-033"
+    ]
   }
 ]

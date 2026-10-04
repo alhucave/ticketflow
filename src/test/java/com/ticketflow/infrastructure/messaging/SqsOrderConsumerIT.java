@@ -1,5 +1,6 @@
 package com.ticketflow.infrastructure.messaging;
 
+import com.ticketflow.testsupport.TestTimeouts;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 import static org.mockito.ArgumentMatchers.any;
@@ -39,11 +40,12 @@ import software.amazon.awssdk.services.sqs.model.SendMessageRequest;
 @Tag("integration")
 class SqsOrderConsumerIT {
 
-    private static final Duration TIMEOUT = Duration.ofSeconds(90);
+    private static final Duration TIMEOUT = TestTimeouts.WAIT;
 
     // 2026.x images require LOCALSTACK_AUTH_TOKEN; 4.14.0 is the last that runs without one.
     private static final LocalStackContainer LOCALSTACK = new LocalStackContainer(
-            DockerImageName.parse("localstack/localstack:4.14.0")).withServices("sqs");
+            DockerImageName.parse("localstack/localstack:4.14.0")).withServices("sqs")
+            .withStartupTimeout(TestTimeouts.CONTAINER_STARTUP);
 
     private static SqsAsyncClient sqs;
 

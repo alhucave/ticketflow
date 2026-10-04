@@ -1,5 +1,6 @@
 package com.ticketflow.infrastructure.web;
 
+import com.ticketflow.testsupport.TestTimeouts;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
@@ -51,6 +52,7 @@ import org.springframework.http.HttpMethod;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.web.reactive.server.FluxExchangeResult;
 import org.springframework.test.web.reactive.server.WebTestClient;
 import org.springframework.web.reactive.function.client.WebClient;
 import org.springframework.web.server.ServerWebExchange;
@@ -78,10 +80,10 @@ import software.amazon.awssdk.services.sqs.model.ReceiveMessageRequest;
  */
 @Tag("integration")
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@AutoConfigureWebTestClient(timeout = "30s")
+@AutoConfigureWebTestClient
 class HardeningEndToEndIT {
 
-    private static final Duration WAIT = Duration.ofSeconds(60);
+    private static final Duration WAIT = TestTimeouts.WAIT;
     private static final String ADMIN_KEY = "e2e-admin-key-" + UUID.randomUUID();
     private static final String TYPE = "urn:ticketflow:problem:";
     private static SqsTestQueues.Queues queues;
@@ -310,34 +312,35 @@ class HardeningEndToEndIT {
 
     // ---------------------------------------------------------------- headers
 
+    /**
+     * Headers of a response whose status was already asserted. The body is read to the end so the pooled connection
+     * goes back to the pool (an unread body, notably the long {@code GET /events} list, keeps it checked out).
+     */
+    private static HttpHeaders headersOf(WebTestClient.ResponseSpec response) {
+        FluxExchangeResult<String> result = response.returnResult(String.class);
+        result.getResponseBody().blockLast(TestTimeouts.RESPONSE);
+        return result.getResponseHeaders();
+    }
+
     @Test
     void securityHeaders_arePresentOnSuccessAndOnEveryKindOfError() {
         String eventId = createEvent(5);
         List<HttpHeaders> all = new ArrayList<>();
-        all.add(client.get().uri("/events").exchange().expectStatus().isOk()
-                .returnResult(String.class).getResponseHeaders());
-        all.add(client.get().uri("/events/{id}/availability", eventId).exchange().expectStatus().isOk()
-                .returnResult(String.class).getResponseHeaders());
-        all.add(purchase(newKey(), eventId, 2).expectStatus().isAccepted()
-                .returnResult(String.class).getResponseHeaders());
-        all.add(client.get().uri("/events/nope").exchange().expectStatus().isNotFound()
-                .returnResult(String.class).getResponseHeaders());
-        all.add(client.get().uri("/no/such/route").exchange().expectStatus().isNotFound()
-                .returnResult(String.class).getResponseHeaders());
-        all.add(client.delete().uri("/events").exchange().expectStatus().isEqualTo(405)
-                .returnResult(String.class).getResponseHeaders());
-        all.add(client.post().uri("/events").contentType(MediaType.TEXT_PLAIN).bodyValue("x").exchange()
-                .expectStatus().isEqualTo(415).returnResult(String.class).getResponseHeaders());
-        all.add(purchase(newKey(), eventId, 50).expectStatus().isBadRequest()
-                .returnResult(String.class).getResponseHeaders());
-        all.add(purchase(newKey(), eventId, 4).expectStatus().isEqualTo(409)
-                .returnResult(String.class).getResponseHeaders());
-        all.add(client.post().uri("/events/{id}/complimentary", eventId).contentType(MediaType.APPLICATION_JSON)
+        all.add(headersOf(client.get().uri("/events").exchange().expectStatus().isOk()));
+        all.add(headersOf(client.get().uri("/events/{id}/availability", eventId).exchange().expectStatus().isOk()));
+        all.add(headersOf(purchase(newKey(), eventId, 2).expectStatus().isAccepted()));
+        all.add(headersOf(client.get().uri("/events/nope").exchange().expectStatus().isNotFound()));
+        all.add(headersOf(client.get().uri("/no/such/route").exchange().expectStatus().isNotFound()));
+        all.add(headersOf(client.delete().uri("/events").exchange().expectStatus().isEqualTo(405)));
+        all.add(headersOf(client.post().uri("/events").contentType(MediaType.TEXT_PLAIN).bodyValue("x").exchange()
+                .expectStatus().isEqualTo(415)));
+        all.add(headersOf(purchase(newKey(), eventId, 50).expectStatus().isBadRequest()));
+        all.add(headersOf(purchase(newKey(), eventId, 4).expectStatus().isEqualTo(409)));
+        all.add(headersOf(client.post().uri("/events/{id}/complimentary", eventId).contentType(MediaType.APPLICATION_JSON)
                 .header("Idempotency-Key", newKey()).bodyValue("{\"quantity\":1}").exchange()
-                .expectStatus().isUnauthorized().returnResult(String.class).getResponseHeaders());
+                .expectStatus().isUnauthorized()));
         // Actuator lives on the management port only: on the public port it is just another unknown route.
-        all.add(client.get().uri("/actuator/health").exchange().expectStatus().isNotFound()
-                .returnResult(String.class).getResponseHeaders());
+        all.add(headersOf(client.get().uri("/actuator/health").exchange().expectStatus().isNotFound()));
         all.forEach(HardeningEndToEndIT::assertSecurityHeaders);
     }
 

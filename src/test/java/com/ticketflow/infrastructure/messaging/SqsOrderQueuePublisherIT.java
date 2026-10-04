@@ -1,5 +1,6 @@
 package com.ticketflow.infrastructure.messaging;
 
+import com.ticketflow.testsupport.TestTimeouts;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.ticketflow.domain.model.EventId;
@@ -35,7 +36,8 @@ class SqsOrderQueuePublisherIT {
 
     // 2026.x images require LOCALSTACK_AUTH_TOKEN; 4.14.0 is the last that runs without one.
     private static final LocalStackContainer LOCALSTACK = new LocalStackContainer(
-            DockerImageName.parse("localstack/localstack:4.14.0")).withServices("sqs");
+            DockerImageName.parse("localstack/localstack:4.14.0")).withServices("sqs")
+            .withStartupTimeout(TestTimeouts.CONTAINER_STARTUP);
 
     private static SqsAsyncClient sqs;
 
@@ -146,7 +148,7 @@ class SqsOrderQueuePublisherIT {
                 StepVerifier.create(context.getBean(OrderQueuePublisher.class).publish(order()))
                         .expectErrorSatisfies(e -> assertThat(e).isInstanceOf(OrderQueueNotFoundException.class)
                                 .hasMessageContaining(missing))
-                        .verify(Duration.ofSeconds(30)));
+                        .verify(TestTimeouts.WAIT));
 
         assertThat(sqs.listQueues().join().queueUrls()).noneMatch(url -> url.endsWith(missing));
     }
@@ -158,7 +160,7 @@ class SqsOrderQueuePublisherIT {
         runner.withPropertyValues("ticketflow.sqs.orders-queue-name=" + name).run(context -> {
             var publisher = context.getBean(OrderQueuePublisher.class);
             StepVerifier.create(publisher.publish(order())).expectError(OrderQueueNotFoundException.class)
-                    .verify(Duration.ofSeconds(30));
+                    .verify(TestTimeouts.WAIT);
             createQueue(name);
             StepVerifier.create(publisher.publish(order())).verifyComplete();
         });

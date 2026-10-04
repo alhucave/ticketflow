@@ -1,5 +1,6 @@
 package com.ticketflow.infrastructure.config;
 
+import com.ticketflow.testsupport.TestTimeouts;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -96,14 +97,14 @@ class ObservabilityConfigTest {
                 .thenReturn(CompletableFuture.completedFuture(DescribeTableResponse.builder().build()));
         runner().withPropertyValues("ticketflow.observability.health.cache-ttl=0s").run(context -> {
             var indicator = context.getBean("dynamodbHealthIndicator", ReactiveHealthIndicator.class);
-            assertThat(indicator.health().block(Duration.ofSeconds(5)).getStatus()).isEqualTo(Status.UP);
+            assertThat(indicator.health().block(TestTimeouts.WAIT).getStatus()).isEqualTo(Status.UP);
             var request = ArgumentCaptor.forClass(DescribeTableRequest.class);
             verify(dynamo).describeTable(request.capture());
             assertThat(request.getValue().tableName()).isEqualTo(DynamoDbTables.ORDERS);
 
             when(dynamo.describeTable(any(DescribeTableRequest.class)))
                     .thenReturn(CompletableFuture.failedFuture(new IllegalStateException("unreachable")));
-            assertThat(indicator.health().block(Duration.ofSeconds(5)).getStatus()).isEqualTo(Status.DOWN);
+            assertThat(indicator.health().block(TestTimeouts.WAIT).getStatus()).isEqualTo(Status.DOWN);
         });
     }
 
@@ -112,11 +113,11 @@ class ObservabilityConfigTest {
         runner().withPropertyValues("ticketflow.observability.health.cache-ttl=0s",
                 "ticketflow.sqs.orders-queue-name=orders").run(context -> {
             var indicator = context.getBean("sqsHealthIndicator", ReactiveHealthIndicator.class);
-            assertThat(indicator.health().block(Duration.ofSeconds(5)).getStatus()).isEqualTo(Status.UP);
+            assertThat(indicator.health().block(TestTimeouts.WAIT).getStatus()).isEqualTo(Status.UP);
 
             when(sqs.getQueueUrl(any(GetQueueUrlRequest.class)))
                     .thenReturn(CompletableFuture.failedFuture(new IllegalStateException("no such queue")));
-            assertThat(indicator.health().block(Duration.ofSeconds(5)).getStatus()).isEqualTo(Status.DOWN);
+            assertThat(indicator.health().block(TestTimeouts.WAIT).getStatus()).isEqualTo(Status.DOWN);
         });
     }
 
@@ -125,7 +126,7 @@ class ObservabilityConfigTest {
         runner().withPropertyValues("ticketflow.observability.health.cache-ttl=0s",
                 "ticketflow.sqs.orders-queue-url=http://sqs.test/000000000000/orders").run(context -> {
             var indicator = context.getBean("sqsHealthIndicator", ReactiveHealthIndicator.class);
-            assertThat(indicator.health().block(Duration.ofSeconds(5)).getStatus()).isEqualTo(Status.UP);
+            assertThat(indicator.health().block(TestTimeouts.WAIT).getStatus()).isEqualTo(Status.UP);
             var request = ArgumentCaptor.forClass(GetQueueAttributesRequest.class);
             verify(sqs, org.mockito.Mockito.atLeastOnce()).getQueueAttributes(request.capture());
             assertThat(request.getValue().queueUrl()).isEqualTo("http://sqs.test/000000000000/orders");

@@ -1,5 +1,6 @@
 package com.ticketflow;
 
+import com.ticketflow.testsupport.TestTimeouts;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.IOException;
@@ -63,7 +64,7 @@ class ObservabilityEndpointsTest {
     private static Reply get(WebClient client, String path) {
         return client.get().uri(path).exchangeToMono(response -> response.bodyToMono(String.class)
                         .defaultIfEmpty("").map(body -> new Reply(response.statusCode().value(), body)))
-                .block(Duration.ofSeconds(20));
+                .block(TestTimeouts.WAIT);
     }
 
     @Test

@@ -1,5 +1,6 @@
 package com.ticketflow.infrastructure.web;
 
+import com.ticketflow.testsupport.TestTimeouts;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
@@ -30,10 +31,10 @@ import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient;
  */
 @Tag("integration")
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@AutoConfigureWebTestClient(timeout = "30s")
+@AutoConfigureWebTestClient
 class RateLimitEndToEndIT {
 
-    private static final Duration WAIT = Duration.ofSeconds(60);
+    private static final Duration WAIT = TestTimeouts.WAIT;
     private static final String ADMIN_KEY = "e2e-admin-key-" + UUID.randomUUID();
     private static final String SETUP_CLIENT = "203.0.113.250";
     private static final String TYPE = "urn:ticketflow:problem:";

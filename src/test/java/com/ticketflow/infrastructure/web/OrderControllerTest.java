@@ -1,5 +1,6 @@
 package com.ticketflow.infrastructure.web;
 
+import com.ticketflow.testsupport.TestWebClients;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -50,10 +51,9 @@ class OrderControllerTest {
     void setUp() {
         LocalValidatorFactoryBean validator = new LocalValidatorFactoryBean();
         validator.afterPropertiesSet();
-        client = WebTestClient.bindToController(new OrderController(purchase, status, 10))
+        client = TestWebClients.build(WebTestClient.bindToController(new OrderController(purchase, status, 10))
                 .controllerAdvice(new ApiExceptionHandler())
-                .validator(validator)
-                .build();
+                .validator(validator));
     }
 
     private static LocalValidatorFactoryBean validator() {
@@ -174,8 +174,8 @@ class OrderControllerTest {
     @Test
     void purchase_maxQuantityIsConfigurable_aboveItIs400AtItIsAccepted() {
         when(purchase.execute(any())).thenReturn(Mono.just(accepted()));
-        var strict = WebTestClient.bindToController(new OrderController(purchase, status, 3))
-                .controllerAdvice(new ApiExceptionHandler()).validator(validator()).build();
+        var strict = TestWebClients.build(WebTestClient.bindToController(new OrderController(purchase, status, 3))
+                .controllerAdvice(new ApiExceptionHandler()).validator(validator()));
 
         strict.post().uri("/orders").contentType(MediaType.APPLICATION_JSON)
                 .header("Idempotency-Key", "key-0123456789abcdef")
@@ -189,8 +189,8 @@ class OrderControllerTest {
         strict.post().uri("/orders").contentType(MediaType.APPLICATION_JSON)
                 .header("Idempotency-Key", "key-0123456789abcdef")
                 .bodyValue("{\"eventId\":\"evt-1\",\"quantity\":3}").exchange().expectStatus().isAccepted();
-        var generous = WebTestClient.bindToController(new OrderController(purchase, status, 50))
-                .controllerAdvice(new ApiExceptionHandler()).validator(validator()).build();
+        var generous = TestWebClients.build(WebTestClient.bindToController(new OrderController(purchase, status, 50))
+                .controllerAdvice(new ApiExceptionHandler()).validator(validator()));
         generous.post().uri("/orders").contentType(MediaType.APPLICATION_JSON)
                 .header("Idempotency-Key", "key-0123456789abcdef")
                 .bodyValue("{\"eventId\":\"evt-1\",\"quantity\":50}").exchange().expectStatus().isAccepted();

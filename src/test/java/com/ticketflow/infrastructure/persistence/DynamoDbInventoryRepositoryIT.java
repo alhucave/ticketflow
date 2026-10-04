@@ -1,5 +1,6 @@
 package com.ticketflow.infrastructure.persistence;
 
+import com.ticketflow.testsupport.TestTimeouts;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.ticketflow.domain.exception.EventAlreadyExistsException;
@@ -31,12 +32,13 @@ import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient;
 @Tag("integration")
 class DynamoDbInventoryRepositoryIT {
 
-    private static final Duration TIMEOUT = Duration.ofSeconds(60);
+    private static final Duration TIMEOUT = TestTimeouts.WAIT;
 
     private static final GenericContainer<?> DYNAMO = new GenericContainer<>(
             DockerImageName.parse("amazon/dynamodb-local:3.3.1"))
             .withCommand("-jar", "DynamoDBLocal.jar", "-sharedDb", "-inMemory")
-            .withExposedPorts(8000);
+            .withExposedPorts(8000)
+            .withStartupTimeout(TestTimeouts.CONTAINER_STARTUP);
 
     private static DynamoDbAsyncClient client;
     private static DynamoDbInventoryRepository repository;

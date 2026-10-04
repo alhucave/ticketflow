@@ -1,5 +1,6 @@
 package com.ticketflow.usecase;
 
+import com.ticketflow.testsupport.TestTimeouts;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
@@ -54,15 +55,17 @@ import software.amazon.awssdk.services.sqs.model.SendMessageRequest;
 @Tag("integration")
 class OrderProcessingSqsEndToEndIT {
 
-    private static final Duration WAIT = Duration.ofSeconds(60);
-    private static final Duration TIMEOUT = Duration.ofSeconds(120);
+    private static final Duration WAIT = TestTimeouts.WAIT;
+    private static final Duration TIMEOUT = TestTimeouts.WAIT;
 
     private static final GenericContainer<?> DYNAMO = new GenericContainer<>(
             DockerImageName.parse("amazon/dynamodb-local:3.3.1"))
             .withCommand("-jar", "DynamoDBLocal.jar", "-sharedDb", "-inMemory")
-            .withExposedPorts(8000);
+            .withExposedPorts(8000)
+            .withStartupTimeout(TestTimeouts.CONTAINER_STARTUP);
     private static final LocalStackContainer LOCALSTACK = new LocalStackContainer(
-            DockerImageName.parse("localstack/localstack:4.14.0")).withServices("sqs");
+            DockerImageName.parse("localstack/localstack:4.14.0")).withServices("sqs")
+            .withStartupTimeout(TestTimeouts.CONTAINER_STARTUP);
 
     private static DynamoDbAsyncClient dynamo;
     private static SqsAsyncClient sqs;

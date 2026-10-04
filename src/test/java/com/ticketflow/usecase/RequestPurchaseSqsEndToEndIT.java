@@ -1,5 +1,6 @@
 package com.ticketflow.usecase;
 
+import com.ticketflow.testsupport.TestTimeouts;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.ticketflow.domain.exception.OrderEnqueueFailedException;
@@ -47,15 +48,17 @@ import tools.jackson.databind.json.JsonMapper;
 @Tag("integration")
 class RequestPurchaseSqsEndToEndIT {
 
-    private static final Duration WAIT = Duration.ofSeconds(60);
+    private static final Duration WAIT = TestTimeouts.WAIT;
     private static final Instant NOW = Instant.parse("2030-01-01T10:00:00Z");
 
     private static final GenericContainer<?> DYNAMO = new GenericContainer<>(
             DockerImageName.parse("amazon/dynamodb-local:3.3.1"))
             .withCommand("-jar", "DynamoDBLocal.jar", "-sharedDb", "-inMemory")
-            .withExposedPorts(8000);
+            .withExposedPorts(8000)
+            .withStartupTimeout(TestTimeouts.CONTAINER_STARTUP);
     private static final LocalStackContainer LOCALSTACK = new LocalStackContainer(
-            DockerImageName.parse("localstack/localstack:4.14.0")).withServices("sqs");
+            DockerImageName.parse("localstack/localstack:4.14.0")).withServices("sqs")
+            .withStartupTimeout(TestTimeouts.CONTAINER_STARTUP);
 
     private static DynamoDbAsyncClient dynamo;
     private static SqsAsyncClient sqs;

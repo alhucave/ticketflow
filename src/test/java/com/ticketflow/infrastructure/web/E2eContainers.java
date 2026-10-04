@@ -1,5 +1,6 @@
 package com.ticketflow.infrastructure.web;
 
+import com.ticketflow.testsupport.TestTimeouts;
 import com.ticketflow.infrastructure.messaging.SqsTestQueues;
 import java.util.UUID;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -20,9 +21,11 @@ public final class E2eContainers {
     private static final GenericContainer<?> DYNAMO = new GenericContainer<>(
             DockerImageName.parse("amazon/dynamodb-local:3.3.1"))
             .withCommand("-jar", "DynamoDBLocal.jar", "-sharedDb", "-inMemory")
-            .withExposedPorts(8000);
+            .withExposedPorts(8000)
+            .withStartupTimeout(TestTimeouts.CONTAINER_STARTUP);
     private static final LocalStackContainer LOCALSTACK = new LocalStackContainer(
-            DockerImageName.parse("localstack/localstack:4.14.0")).withServices("sqs");
+            DockerImageName.parse("localstack/localstack:4.14.0")).withServices("sqs")
+            .withStartupTimeout(TestTimeouts.CONTAINER_STARTUP);
     private static SqsAsyncClient sqs;
 
     private E2eContainers() {}

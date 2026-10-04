@@ -1,5 +1,6 @@
 package com.ticketflow.usecase;
 
+import com.ticketflow.testsupport.TestTimeouts;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.ticketflow.domain.exception.InvalidEventException;
@@ -35,7 +36,8 @@ class EventUseCasesIT {
     private static final GenericContainer<?> DYNAMO = new GenericContainer<>(
             DockerImageName.parse("amazon/dynamodb-local:3.3.1"))
             .withCommand("-jar", "DynamoDBLocal.jar", "-sharedDb", "-inMemory")
-            .withExposedPorts(8000);
+            .withExposedPorts(8000)
+            .withStartupTimeout(TestTimeouts.CONTAINER_STARTUP);
 
     private static DynamoDbAsyncClient client;
     private static CreateEventUseCase create;
@@ -73,7 +75,7 @@ class EventUseCasesIT {
     void createGetList_endToEnd_inventoryInitializedOnce() {
         Instant startsAt = Instant.now().plus(Duration.ofDays(30));
         var created = create.execute(new CreateEventCommand("Rock", startsAt, "Arena", 120))
-                .block(Duration.ofSeconds(10));
+                .block(TestTimeouts.WAIT);
         assertThat(created).isNotNull();
 
         StepVerifier.create(get.execute(created.id()))
@@ -85,7 +87,7 @@ class EventUseCasesIT {
                 })
                 .verifyComplete();
 
-        var listed = list.execute().collectList().block(Duration.ofSeconds(10));
+        var listed = list.execute().collectList().block(TestTimeouts.WAIT);
         assertThat(listed).contains(created);
     }
 
@@ -110,7 +112,7 @@ class EventUseCasesIT {
     @Test
     void availability_afterCreateAndReserve_reflectsReservedAndStreamsChange() {
         var created = create.execute(new CreateEventCommand("Jazz", Instant.now().plus(Duration.ofDays(5)), "Hall", 50))
-                .block(Duration.ofSeconds(10));
+                .block(TestTimeouts.WAIT);
         assertThat(created).isNotNull();
 
         StepVerifier.create(availability.execute(created.id()))
@@ -119,10 +121,10 @@ class EventUseCasesIT {
 
         StepVerifier.create(availability.stream(created.id()).take(2))
                 .expectNext(new Availability(created.id(), 50, 0, 0, 0, 0, 50))
-                .then(() -> inventoriesRepo.reserve(created.id(), new Quantity(5)).block(Duration.ofSeconds(10)))
+                .then(() -> inventoriesRepo.reserve(created.id(), new Quantity(5)).block(TestTimeouts.WAIT))
                 .expectNext(new Availability(created.id(), 45, 5, 0, 0, 0, 50))
                 .expectComplete()
-                .verify(Duration.ofSeconds(10));
+                .verify(TestTimeouts.WAIT);
 
         StepVerifier.create(availability.execute(created.id()))
                 .assertNext(a -> {

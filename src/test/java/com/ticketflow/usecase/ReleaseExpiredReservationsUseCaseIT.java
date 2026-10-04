@@ -1,5 +1,6 @@
 package com.ticketflow.usecase;
 
+import com.ticketflow.testsupport.TestTimeouts;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.ticketflow.domain.model.Event;
@@ -58,7 +59,7 @@ import software.amazon.awssdk.services.dynamodb.DynamoDbAsyncClient;
 @Tag("integration")
 class ReleaseExpiredReservationsUseCaseIT {
 
-    private static final Duration WAIT = Duration.ofSeconds(120);
+    private static final Duration WAIT = TestTimeouts.WAIT;
     private static final Instant BASE = Instant.parse("2030-06-01T10:00:00Z");
     private static final Duration TTL = Duration.ofMinutes(10);
     private static final AtomicInteger WINDOW = new AtomicInteger();
@@ -66,7 +67,8 @@ class ReleaseExpiredReservationsUseCaseIT {
     private static final GenericContainer<?> DYNAMO = new GenericContainer<>(
             DockerImageName.parse("amazon/dynamodb-local:3.3.1"))
             .withCommand("-jar", "DynamoDBLocal.jar", "-sharedDb", "-inMemory")
-            .withExposedPorts(8000);
+            .withExposedPorts(8000)
+            .withStartupTimeout(TestTimeouts.CONTAINER_STARTUP);
 
     private static DynamoDbAsyncClient client;
     private static DynamoDbEventRepository events;

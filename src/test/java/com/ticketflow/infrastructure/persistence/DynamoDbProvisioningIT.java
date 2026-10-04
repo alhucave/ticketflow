@@ -1,5 +1,6 @@
 package com.ticketflow.infrastructure.persistence;
 
+import com.ticketflow.testsupport.TestTimeouts;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.ticketflow.infrastructure.config.DynamoDbConfig;
@@ -24,7 +25,8 @@ class DynamoDbProvisioningIT {
     private static final GenericContainer<?> DYNAMO = new GenericContainer<>(
             DockerImageName.parse("amazon/dynamodb-local:3.3.1"))
             .withCommand("-jar", "DynamoDBLocal.jar", "-sharedDb", "-inMemory")
-            .withExposedPorts(8000);
+            .withExposedPorts(8000)
+            .withStartupTimeout(TestTimeouts.CONTAINER_STARTUP);
 
     private final ApplicationContextRunner runner = new ApplicationContextRunner()
             .withUserConfiguration(DynamoDbConfig.class);
@@ -122,7 +124,7 @@ class DynamoDbProvisioningIT {
             dropAll(client);
             context.publishEvent(new org.springframework.boot.context.event.ApplicationReadyEvent(
                     new org.springframework.boot.SpringApplication(), new String[0], context, Duration.ZERO));
-            org.awaitility.Awaitility.await().atMost(Duration.ofSeconds(30)).untilAsserted(() ->
+            org.awaitility.Awaitility.await().atMost(TestTimeouts.WAIT).untilAsserted(() ->
                     assertThat(client.listTables().join().tableNames()).hasSize(4));
         });
     }

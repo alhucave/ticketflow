@@ -1,5 +1,4 @@
 # Estado actual
 
-Feature en curso: ninguna
-Completas: F-001 a F-027 (27/27), repo privado.
-Hallazgos abiertos para decidir con el usuario (ver progress/history.md): test inestable en CI (HardeningEndToEndIT, timeout 5 s), TTL de reserva sin tope de 10 min, consumidor/expiracion apagados por defecto, release.yml sin ejecutar.
+F-028 aprobada (pendiente de PR/merge). Hallazgo abierto nuevo: F-033 (issue #63) diagnostico del cuelgue real de 30 s.
+Siguientes del plan: F-029 (fijar runner ubuntu-24.04), F-030 (tope TTL 10 min), F-031 (consumidor/expiracion activos por defecto), F-032 (primer release ghcr), F-033 (diagnostico del cuelgue).

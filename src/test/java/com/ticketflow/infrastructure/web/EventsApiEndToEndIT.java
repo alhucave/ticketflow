@@ -1,5 +1,6 @@
 package com.ticketflow.infrastructure.web;
 
+import com.ticketflow.testsupport.TestTimeouts;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
@@ -39,7 +40,8 @@ class EventsApiEndToEndIT {
     static final GenericContainer<?> DYNAMO = new GenericContainer<>(
             DockerImageName.parse("amazon/dynamodb-local:3.3.1"))
             .withCommand("-jar", "DynamoDBLocal.jar", "-sharedDb", "-inMemory")
-            .withExposedPorts(8000);
+            .withExposedPorts(8000)
+            .withStartupTimeout(TestTimeouts.CONTAINER_STARTUP);
 
     @DynamicPropertySource
     static void properties(DynamicPropertyRegistry registry) {
@@ -66,7 +68,7 @@ class EventsApiEndToEndIT {
     @BeforeEach
     void awaitTableProvisioning() {
         // Provisioning runs asynchronously on ApplicationReadyEvent: wait until the API can read.
-        await().atMost(Duration.ofSeconds(30)).pollInterval(Duration.ofMillis(200)).untilAsserted(() ->
+        await().atMost(TestTimeouts.WAIT).pollInterval(Duration.ofMillis(200)).untilAsserted(() ->
                 assertThat(dynamo.listTables().join().tableNames())
                         .contains(DynamoDbTables.EVENTS, DynamoDbTables.INVENTORY));
     }

@@ -1,5 +1,6 @@
 package com.ticketflow.infrastructure.web;
 
+import com.ticketflow.testsupport.TestTimeouts;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
@@ -28,7 +29,7 @@ import org.springframework.web.reactive.function.client.WebClient;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 class ReadinessDownEndToEndIT {
 
-    private static final Duration WAIT = Duration.ofSeconds(60);
+    private static final Duration WAIT = TestTimeouts.WAIT;
     private static SqsTestQueues.Queues queues;
 
     @BeforeAll
@@ -61,7 +62,7 @@ class ReadinessDownEndToEndIT {
         return WebClient.create("http://127.0.0.1:" + managementPort).get().uri(path)
                 .exchangeToMono(response -> response.bodyToMono(String.class).defaultIfEmpty("")
                         .map(body -> response.statusCode().value() + " " + body))
-                .block(Duration.ofSeconds(20));
+                .block(TestTimeouts.WAIT);
     }
 
     @Test

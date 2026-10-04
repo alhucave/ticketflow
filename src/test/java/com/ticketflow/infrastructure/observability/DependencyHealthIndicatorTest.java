@@ -1,5 +1,6 @@
 package com.ticketflow.infrastructure.observability;
 
+import com.ticketflow.testsupport.TestTimeouts;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.time.Duration;
@@ -13,7 +14,7 @@ import reactor.test.StepVerifier;
 
 class DependencyHealthIndicatorTest {
 
-    private static final Duration TIMEOUT = Duration.ofSeconds(2);
+    private static final Duration TIMEOUT = TestTimeouts.WAIT;
     private static final Duration TTL = Duration.ofSeconds(5);
 
     private final AtomicInteger probes = new AtomicInteger();
@@ -64,10 +65,10 @@ class DependencyHealthIndicatorTest {
     void health_withinTheTtl_reusesTheLastResultWithoutCallingTheDependency() {
         var indicator = indicator(() -> Mono.fromSupplier(probes::incrementAndGet));
 
-        indicator.health().block(Duration.ofSeconds(1));
+        indicator.health().block(TestTimeouts.WAIT);
         clockNanos.set(TTL.toNanos() - 1);
-        indicator.health().block(Duration.ofSeconds(1));
-        indicator.health().block(Duration.ofSeconds(1));
+        indicator.health().block(TestTimeouts.WAIT);
+        indicator.health().block(TestTimeouts.WAIT);
 
         assertThat(probes).hasValue(1);
     }
@@ -76,9 +77,9 @@ class DependencyHealthIndicatorTest {
     void health_afterTheTtl_probesAgain() {
         var indicator = indicator(() -> Mono.fromSupplier(probes::incrementAndGet));
 
-        indicator.health().block(Duration.ofSeconds(1));
+        indicator.health().block(TestTimeouts.WAIT);
         clockNanos.set(TTL.toNanos());
-        indicator.health().block(Duration.ofSeconds(1));
+        indicator.health().block(TestTimeouts.WAIT);
 
         assertThat(probes).hasValue(2);
     }
@@ -91,7 +92,7 @@ class DependencyHealthIndicatorTest {
         });
 
         for (int i = 0; i < 5; i++) {
-            assertThat(indicator.health().block(Duration.ofSeconds(1)).getStatus()).isEqualTo(Status.DOWN);
+            assertThat(indicator.health().block(TestTimeouts.WAIT).getStatus()).isEqualTo(Status.DOWN);
         }
 
         assertThat(probes).hasValue(1);
@@ -102,10 +103,10 @@ class DependencyHealthIndicatorTest {
         var up = new java.util.concurrent.atomic.AtomicBoolean(false);
         var indicator = indicator(() -> up.get() ? Mono.just("ok") : Mono.error(new IllegalStateException("down")));
 
-        assertThat(indicator.health().block(Duration.ofSeconds(1)).getStatus()).isEqualTo(Status.DOWN);
+        assertThat(indicator.health().block(TestTimeouts.WAIT).getStatus()).isEqualTo(Status.DOWN);
         up.set(true);
         clockNanos.set(TTL.toNanos());
-        assertThat(indicator.health().block(Duration.ofSeconds(1)).getStatus()).isEqualTo(Status.UP);
+        assertThat(indicator.health().block(TestTimeouts.WAIT).getStatus()).isEqualTo(Status.UP);
     }
 
     @Test

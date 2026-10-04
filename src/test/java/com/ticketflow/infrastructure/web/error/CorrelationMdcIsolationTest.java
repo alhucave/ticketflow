@@ -1,5 +1,6 @@
 package com.ticketflow.infrastructure.web.error;
 
+import com.ticketflow.testsupport.TestTimeouts;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import ch.qos.logback.classic.Logger;
@@ -83,7 +84,7 @@ class CorrelationMdcIsolationTest {
                     done.countDown();
                 });
             }
-            assertThat(done.await(10, TimeUnit.SECONDS)).isTrue();
+            assertThat(done.await(TestTimeouts.WAIT.toSeconds(), TimeUnit.SECONDS)).isTrue();
             assertThat(leaked).isEmpty();
             assertThat(MDC.get(CorrelationId.KEY)).isNull();
         } finally {

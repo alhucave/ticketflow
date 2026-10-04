@@ -1,5 +1,6 @@
 package com.ticketflow.infrastructure.web;
 
+import com.ticketflow.testsupport.TestTimeouts;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
@@ -51,10 +52,10 @@ import tools.jackson.databind.JsonNode;
 @TestMethodOrder(MethodOrderer.OrderAnnotation.class)
 @AutoConfigureMetrics
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
-@AutoConfigureWebTestClient(timeout = "30s")
+@AutoConfigureWebTestClient
 class ObservabilityEndToEndIT {
 
-    private static final Duration WAIT = Duration.ofSeconds(90);
+    private static final Duration WAIT = TestTimeouts.WAIT;
     private static SqsTestQueues.Queues queues;
 
     @BeforeAll
@@ -108,7 +109,7 @@ class ObservabilityEndToEndIT {
         return WebClient.create("http://127.0.0.1:" + managementPort).get().uri(path)
                 .exchangeToMono(response -> response.bodyToMono(String.class).defaultIfEmpty("")
                         .map(body -> new Reply(response.statusCode().value(), body)))
-                .block(Duration.ofSeconds(20));
+                .block(TestTimeouts.WAIT);
     }
 
     private PrometheusScrape scrape() {

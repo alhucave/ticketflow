@@ -30,6 +30,17 @@ No forma parte de `./init.sh` (necesita Docker y red), pero es obligatoria en CI
 
 Las pruebas de integración se etiquetan `@Tag("integration")` y requieren Docker; en CI se ejecutan siempre: el workflow define `INCLUDE_INTEGRATION=true`, que `init.sh` traduce a `-PincludeIntegration`. En local, `INCLUDE_INTEGRATION=true ./init.sh` las activa (requiere Docker); sin la variable se excluyen.
 
+## Cómo escribir una prueba de integración o web (plazos, DP-035)
+
+Ningún plazo se escribe en la prueba: todos salen de `com.ticketflow.testsupport.TestTimeouts` (`RESPONSE` 60 s, `WAIT` 90 s, `CONTAINER_STARTUP` 3 min).
+
+- **`WebTestClient` inyectado** (`@Autowired`, con `@SpringBootTest(RANDOM_PORT)` + `@AutoConfigureWebTestClient`, o `@WebFluxTest`): ya trae `RESPONSE` por la propiedad `spring.test.webtestclient.timeout` de `src/test/resources/application.properties`. **No** pongas `@AutoConfigureWebTestClient(timeout = ...)`.
+- **`WebTestClient` construido a mano**: `TestWebClients.build(WebTestClient.bindToController(...)....)` en lugar de `.build()`.
+- **Esperas y bloqueos**: `.block(TestTimeouts.WAIT)`, `.verify(TestTimeouts.WAIT)`, `await().atMost(TestTimeouts.WAIT)`; nunca `Duration.ofSeconds(N)` literal ni un `WAIT` propio con número.
+- **Contenedores**: `.withStartupTimeout(TestTimeouts.CONTAINER_STARTUP)`.
+- **Cuerpos de respuesta**: si una prueba solo mira cabeceras o estado de una respuesta con cuerpo, léelo hasta el final (como `headersOf` en `HardeningEndToEndIT`) para devolver la conexión al pool.
+- `TimeoutPolicyGuardTest` falla si se incumple alguna de estas reglas.
+
 ## Cobertura
 
 - Mínimo 90% de líneas (JaCoCo). Se excluyen solo clases de arranque (`*Application`) y configuración trivial.
