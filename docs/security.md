@@ -2,7 +2,7 @@
 
 Modelo de amenazas, controles y límites conocidos de ticketflow. Describe lo que **está implementado y verificado en este repositorio**; los controles que dependen de una cuenta AWS (borde, IAM, KMS, red, auditoría) se diseñan (sin desplegar) en [`aws.md`](aws.md#5-seguridad-en-la-nube) (ver también «Controles en la nube»). Para reportar una vulnerabilidad, ver [`SECURITY.md`](../SECURITY.md).
 
-Contexto: no hay autenticación de usuarios (la API de compra es anónima); la única credencial es la clave de administración (`X-Admin-Key`) de las rutas de cortesías. El repositorio es público: nada sensible se versiona.
+Contexto: no hay autenticación de usuarios (la API de compra es anónima); la única credencial es la clave de administración (`X-Admin-Key`) de las rutas de cortesías. El repositorio es privado, pero eso no es un almacén de secretos (puede volver a hacerse público o haberse clonado): nada sensible se versiona.
 
 ## Modelo de amenazas
 
@@ -50,7 +50,7 @@ Si el escaneo marca una dependencia transitiva con corrección, súbala con una 
 
 Config en `.gitleaks.toml` (extiende las reglas por defecto). **Única excepción**, estrecha y justificada: la regla genérica `generic-api-key` (basada en entropía) se ignora **solo** en `src/test/java/**/*.java`, donde hay literales de prueba (claves `Idempotency-Key` de ejemplo, constantes `X-Admin-Key` ficticias de los tests) que no son credenciales. Todas las reglas específicas de proveedor (claves AWS, claves privadas, tokens...) siguen aplicando también a los tests y `generic-api-key` sigue aplicando al resto del repositorio. Los valores ficticios de `docker-compose.yml`, `.env.example` y la documentación (`test`/`test`, claves vacías) **no** disparan ninguna regla y no necesitan excepción. Verificado en local: todo el historial y el árbol limpios con esa configuración; una clave AWS plantada y luego borrada de un historial de prueba **sí** se detecta.
 
-Si un hallazgo es real: **revoque la credencial** (reescribir el historial no basta, el repositorio es público) y después elimínela.
+Si un hallazgo es real: **revoque la credencial** (reescribir el historial no basta: puede haberse clonado y el repositorio puede volver a hacerse público) y después elimínela.
 
 ### `.trivyignore`
 

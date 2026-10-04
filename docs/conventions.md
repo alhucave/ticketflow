@@ -24,6 +24,7 @@
 - Commits: imperativo, en inglés, prefijo convencional (`feat:`, `fix:`, `test:`, `docs:`, `chore:`).
 - Un PR por feature, con `Closes #<issue>` y CI en verde.
 - Los commits terminan con la línea `Co-Authored-By` indicada por la configuración.
+- El PR usa la plantilla `.github/pull_request_template.md`. Si la feature añade algo que el enunciado no pide, se registra en `docs/decisions.md` (`DP-NNN`) y se enlaza en `feature_list.json` (ver `AGENTS.md`, «Enunciado vs decisiones propias»).
 
 ## Seguridad
 

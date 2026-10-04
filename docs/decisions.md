@@ -1,0 +1,396 @@
+# Registro de decisiones propias
+
+Este documento lista lo que ticketflow hace **y el enunciado no exige**: decisiones que tomamos nosotros, sea porque el enunciado es ambiguo o calla (**Interpretación del enunciado**) o porque añadimos algo que nadie pidió (**Extra propio**). Su complemento es [`requirements.md`](requirements.md), que lista lo que el enunciado **sí** pide y dónde se cumple. Entre los dos, cualquiera puede distinguir «esto lo pide la prueba» de «esto lo decidimos nosotros».
+
+Es un artefacto **vivo**: lo exige el arnés (`./init.sh` falla si se desincroniza de [`feature_list.json`](../feature_list.json), ver [Reglas](#reglas-para-añadir-o-reemplazar-entradas)) y se actualiza en cada feature que añada comportamiento, límite o restricción no pedidos por el enunciado. Cada afirmación de aquí se verificó contra el código, la configuración y el historial de git; si el código y este documento discrepan, manda el código y hay que corregir el documento.
+
+## Clasificación
+
+| Tipo | Significa | Ejemplo |
+|------|-----------|---------|
+| **Interpretación del enunciado** | El enunciado pide algo pero es ambiguo o no dice cómo; elegimos una lectura | El enunciado define el estado `COMPLIMENTARY` pero no cómo una entrada llega a serlo: elegimos un endpoint de administración |
+| **Extra propio** | El enunciado no pide nada parecido; lo añadimos por criterio propio | Máximo de 10 entradas por orden, rate limiting, puerto de gestión |
+
+## Índice
+
+| DP | Título | Tipo | Estado |
+|----|--------|------|--------|
+| [DP-001](#dp-001-máximo-de-10-entradas-por-orden) | Máximo de 10 entradas por orden | Extra propio | Vigente |
+| [DP-002](#dp-002-idempotency-key-obligatoria-de-16-a-128-caracteres-y-con-un-conjunto-de-caracteres-seguro) | Idempotency-Key obligatoria, de 16 a 128 caracteres y con un conjunto de caracteres seguro | Interpretación del enunciado | Vigente |
+| [DP-003](#dp-003-orderid-derivado-de-la-clave-sha-256-y-semántica-de-replay) | OrderId derivado de la clave (SHA-256) y semántica de replay | Interpretación del enunciado | Vigente |
+| [DP-004](#dp-004-la-orden-usa-los-estados-de-la-entrada-sin-expired-ni-failed) | La orden usa los estados de la entrada; sin EXPIRED ni FAILED | Interpretación del enunciado | Vigente |
+| [DP-005](#dp-005-frontera-de-expiración-vencida-cuando-expiresat--ahora) | Frontera de expiración: vencida cuando expiresAt <= ahora | Interpretación del enunciado | Vigente |
+| [DP-006](#dp-006-ttl-de-reserva-configurable-por-defecto-pt10m-y-job-de-expiración-opcional) | TTL de reserva configurable (por defecto PT10M) y job de expiración opcional | Interpretación del enunciado | Vigente |
+| [DP-007](#dp-007-la-venta-se-confirma-automáticamente-no-hay-pago) | La venta se confirma automáticamente (no hay pago) | Interpretación del enunciado | Vigente |
+| [DP-008](#dp-008-el-inventario-son-contadores-por-evento-no-entradas-individuales) | El inventario son contadores por evento, no entradas individuales | Interpretación del enunciado | Vigente |
+| [DP-009](#dp-009-tabla-order_audit-para-la-auditoría-de-transiciones) | Tabla order_audit para la auditoría de transiciones | Interpretación del enunciado | Vigente |
+| [DP-010](#dp-010-get-events-lista-todos-los-eventos-sin-filtro-ni-paginación) | GET /events lista todos los eventos, sin filtro ni paginación | Interpretación del enunciado | Vigente |
+| [DP-011](#dp-011-disponibilidad-también-como-stream-sse-con-sondeo-configurable) | Disponibilidad también como stream SSE con sondeo configurable | Interpretación del enunciado | Vigente |
+| [DP-012](#dp-012-sqs-standard-consumidor-idempotente-dlq-tras-3-recepciones-y-redrive) | SQS Standard, consumidor idempotente, DLQ tras 3 recepciones y redrive | Interpretación del enunciado | Vigente |
+| [DP-013](#dp-013-endpoint-de-emisión-de-cortesías) | Endpoint de emisión de cortesías | Interpretación del enunciado | Vigente |
+| [DP-014](#dp-014-la-cortesía-se-registra-como-una-orden-de-estado-complimentary) | La cortesía se registra como una orden de estado COMPLIMENTARY | Interpretación del enunciado | Vigente |
+| [DP-015](#dp-015-guardia-x-admin-key-para-las-rutas-de-administración) | Guardia X-Admin-Key para las rutas de administración | Extra propio | Vigente |
+| [DP-016](#dp-016-rate-limiting-por-cliente-en-las-rutas-de-escritura) | Rate limiting por cliente en las rutas de escritura | Extra propio | Vigente |
+| [DP-017](#dp-017-bloqueo-de-los-intentos-fallidos-de-x-admin-key-fuerza-bruta) | Bloqueo de los intentos fallidos de X-Admin-Key (fuerza bruta) | Extra propio | Vigente |
+| [DP-018](#dp-018-trust-forwarded-for-desactivado-por-defecto) | trust-forwarded-for desactivado por defecto | Extra propio | Vigente |
+| [DP-019](#dp-019-límite-de-tamaño-del-cuerpo-de-las-peticiones-32-kb) | Límite de tamaño del cuerpo de las peticiones (32 KB) | Extra propio | Vigente |
+| [DP-020](#dp-020-límites-de-entrada-y-de-longitud) | Límites de entrada y de longitud | Extra propio | Vigente |
+| [DP-021](#dp-021-errores-como-problemjson-rfc-7807-con-catálogo-propio) | Errores como problem+json (RFC 7807) con catálogo propio | Interpretación del enunciado | Vigente |
+| [DP-022](#dp-022-cabeceras-de-seguridad-en-todas-las-respuestas) | Cabeceras de seguridad en todas las respuestas | Extra propio | Vigente |
+| [DP-023](#dp-023-puerto-de-gestión-8081-con-health-info-y-prometheus) | Puerto de gestión 8081 con health, info y Prometheus | Extra propio | Vigente |
+| [DP-024](#dp-024-catálogo-de-métricas-de-negocio-con-etiquetas-de-baja-cardinalidad) | Catálogo de métricas de negocio con etiquetas de baja cardinalidad | Extra propio | Vigente |
+| [DP-025](#dp-025-logs-json-ecs-y-correlation-id-de-extremo-a-extremo) | Logs JSON (ECS) y correlation id de extremo a extremo | Extra propio | Vigente |
+| [DP-026](#dp-026-endurecimiento-del-contenedor-y-de-docker-compose) | Endurecimiento del contenedor y de docker-compose | Extra propio | Vigente |
+| [DP-027](#dp-027-escaneos-de-la-cadena-de-suministro-dependabot-y-bloqueo-de-dependencias) | Escaneos de la cadena de suministro, Dependabot y bloqueo de dependencias | Extra propio | Vigente |
+| [DP-028](#dp-028-localstack-fijado-a-4140) | LocalStack fijado a 4.14.0 | Interpretación del enunciado | Vigente |
+| [DP-029](#dp-029-ci-en-github-actions-y-publicación-de-la-imagen-en-ghcrio) | CI en GitHub Actions y publicación de la imagen en ghcr.io | Extra propio | Vigente |
+| [DP-030](#dp-030-repositorio-privado-la-protección-de-main-no-se-puede-imponer) | Repositorio privado; la protección de main no se puede imponer | Extra propio | Vigente |
+| [DP-031](#dp-031-docsawsmd-es-solo-diseño-nada-está-desplegado-en-aws) | docs/aws.md es solo diseño; nada está desplegado en AWS | Interpretación del enunciado | Vigente |
+| [DP-032](#dp-032-registro-vivo-de-trazabilidad-requirementsmd-y-decisionsmd-exigido-por-el-arnés) | Registro vivo de trazabilidad (requirements.md y decisions.md) exigido por el arnés | Extra propio | Vigente |
+
+## Plantilla
+
+Copie este bloque al final de la sección «Decisiones», con el siguiente `DP-NNN` libre (tres dígitos, **nunca se reutiliza** un id, ni siquiera el de una decisión reemplazada). El título del encabezado debe empezar por `### DP-NNN:` y las líneas `Tipo` y `Estado` deben tener exactamente estos formatos, porque `./init.sh` las lee.
+
+```markdown
+### DP-NNN: Título corto y concreto
+- **Tipo:** Interpretación del enunciado | Extra propio
+- **Feature:** F-0xx (la que la introdujo)
+- **Estado:** Vigente
+- **Qué:** qué se hace exactamente, con los nombres reales (clases, rutas, valores).
+- **Por qué:** el razonamiento, y a qué ítem del enunciado responde o por qué no lo toca.
+- **Configurar, cambiar o quitar:** propiedades/variables reales y su valor por defecto; qué habría que tocar para cambiarla o eliminarla.
+- **Impacto y riesgo:** qué se rompe o se arriesga si se cambia; límites conocidos.
+- **Verificación:** clases de prueba y código donde se comprueba.
+```
+
+## Reglas para añadir o reemplazar entradas
+
+1. **Cuándo.** Toda feature cuyo `origin` en [`feature_list.json`](../feature_list.json) no sea `spec` **debe** tener al menos una entrada aquí y listarla en `decisions`. Una feature `spec` que contenga una interpretación también la registra. Ante la duda, pregúntese: «¿esto agrega algo que el enunciado no exige?».
+2. **Id.** El siguiente `DP-NNN` libre. Los ids no se reutilizan ni se renumeran.
+3. **Enlazar.** Añada el id a `decisions` de la feature y, si la decisión interpreta un requisito, al campo `DP` de su fila en [`requirements.md`](requirements.md). Añada también la fila a la tabla del [Índice](#índice) (o regenérela: debe coincidir con las entradas).
+4. **Reemplazar.** No se edita la historia: la entrada antigua pasa a `- **Estado:** Reemplazada por DP-MMM` y se escribe una entrada nueva `DP-MMM` que explique el cambio. Una entrada reemplazada puede quedar sin feature que la referencie; una vigente no.
+5. **Verificar.** `./init.sh --check-registry` ejecuta solo esta validación (también corre dentro de `./init.sh`). Falla si falta `origin`, si una feature no-`spec` no tiene `decisions`, si se referencia un DP que no existe, si hay un DP vigente sin feature, si hay ids duplicados o mal formados, o si una fila de la matriz tiene un estado no válido.
+6. **Documentar.** Si la decisión añade una propiedad o límite, reflejarlo también en la tabla de configuración del [README](../README.md#referencia-de-configuración) con un enlace a su `DP-NNN` (el valor lo manda el código).
+
+## Decisiones
+
+### DP-001: Máximo de 10 entradas por orden
+- **Tipo:** Extra propio
+- **Feature:** F-023 (parte 1, hardening de aplicación)
+- **Estado:** Vigente
+- **Qué:** `POST /orders` rechaza con `400 validation-error` (violación del campo `quantity`) una orden de más de 10 entradas. Lo aplica [`OrderController`](../src/main/java/com/ticketflow/infrastructure/web/OrderController.java) (método `checked`); el DTO [`PurchaseRequest`](../src/main/java/com/ticketflow/infrastructure/web/PurchaseRequest.java) solo exige `quantity >= 1`.
+- **Por qué:** **El enunciado no fija ningún máximo por orden** (solo el tiempo máximo de reserva, RF-2). Es una decisión propia contra el «abuso de recursos» que cita la sección de seguridad: una sola petición anónima podría retener todo el inventario de un evento durante 10 minutos. Junto con el rate limit ([`DP-016`](decisions.md#dp-016-rate-limiting-por-cliente-en-las-rutas-de-escritura)) acota cuánto inventario puede retener un cliente.
+- **Configurar, cambiar o quitar:** propiedad `ticketflow.orders.max-quantity` (por defecto `10` en `src/main/resources/application.yml` y en el `@Value` de `OrderController`); variable de entorno equivalente `TICKETFLOW_ORDERS_MAX_QUANTITY` (el `docker-compose.yml` no la reenvía: añádala al bloque `environment` de `app` o use un `docker-compose.override.yml`). Debe ser `>= 1` (si no, la aplicación no arranca). Para quitar el límite: borrar `checked(...)` de `OrderController`, sus pruebas, y las menciones en el README, `docs/security.md` y la colección de Postman; subir el valor lo relaja sin tocar código. No tiene relación con el máximo de 1000 de las cortesías ([`DP-020`](decisions.md#dp-020-límites-de-entrada-y-de-longitud)).
+- **Impacto y riesgo:** quien necesite comprar más de 10 entradas debe hacer varias órdenes (cada una con su `Idempotency-Key` y dentro del rate limit). Subirlo aumenta el inventario que un cliente puede retener por reserva.
+- **Verificación:** [`OrderControllerTest#purchase_quantityAtLimit10_isAccepted`](../src/test/java/com/ticketflow/infrastructure/web/OrderControllerTest.java), [`OrderControllerTest#purchase_maxQuantityIsConfigurable_aboveItIs400AtItIsAccepted`](../src/test/java/com/ticketflow/infrastructure/web/OrderControllerTest.java), [`OrderControllerTest#constructor_maxQuantityBelowOne_isRejected`](../src/test/java/com/ticketflow/infrastructure/web/OrderControllerTest.java) y, de extremo a extremo con DynamoDB real, [`HardeningEndToEndIT#maxQuantityPerOrder_isConfigurable_aboveItIs400AndReservesNothing`](../src/test/java/com/ticketflow/infrastructure/web/HardeningEndToEndIT.java).
+
+### DP-002: Idempotency-Key obligatoria, de 16 a 128 caracteres y con un conjunto de caracteres seguro
+- **Tipo:** Interpretación del enunciado
+- **Feature:** F-019 (cabecera y charset); mínimo de 16 caracteres en F-023; máximo de 128 en F-005
+- **Estado:** Vigente
+- **Qué:** `POST /orders` y `POST /events/{id}/complimentary` exigen la cabecera `Idempotency-Key` de **16 a 128 caracteres** `[A-Za-z0-9._:-]` (un UUID sirve); si falta, es corta, larga o con otros caracteres: `400 invalid-idempotency-key` con texto fijo que no repite el valor. Se valida en [`OrderMapper`](../src/main/java/com/ticketflow/infrastructure/web/OrderMapper.java) (`toKey`, `KEY_MIN_LENGTH`) y el máximo vive en [`IdempotencyKey`](../src/main/java/com/ticketflow/domain/model/IdempotencyKey.java) (`MAX_LENGTH`).
+- **Por qué:** la sección de seguridad del enunciado pide considerar «reintentos maliciosos» e «idempotencia», pero no define el mecanismo. Elegimos una clave suministrada por el cliente. El mínimo de 16 existe porque el `orderId` se deriva **solo** de la clave ([`DP-003`](decisions.md#dp-003-orderid-derivado-de-la-clave-sha-256-y-semántica-de-replay)): una clave corta y adivinable (`"1"`, `"abc"`) permitiría chocar con la orden de otro cliente. El mínimo se aplica en la capa web y no en `IdempotencyKey` a propósito, para poder leer órdenes antiguas guardadas con claves más cortas.
+- **Configurar, cambiar o quitar:** son constantes de código, no propiedades (`OrderMapper.KEY_MIN_LENGTH = 16`, `IdempotencyKey.MAX_LENGTH = 128`, patrón `KEY_CHARSET`). Cambiarlas exige editar el código, las pruebas y la tabla de reglas del README. Quitar la obligatoriedad rompe la garantía «una orden por clave».
+- **Impacto y riesgo:** un cliente que use claves predecibles de 16 o más caracteres sigue siendo adivinable (usar UUID). No hay autenticación de usuarios, así que la clave no está ligada a un principal (limitación 4 de [`security.md`](security.md#limitaciones-conocidas)).
+- **Verificación:** [`OrderControllerTest#purchase_keyShorterThan16Chars_returns400WithoutEchoingIt`](../src/test/java/com/ticketflow/infrastructure/web/OrderControllerTest.java), [`OrderControllerTest#purchase_keyOfExactly16Chars_isAccepted`](../src/test/java/com/ticketflow/infrastructure/web/OrderControllerTest.java), [`OrderControllerTest#purchase_keyOver128Chars_returns400`](../src/test/java/com/ticketflow/infrastructure/web/OrderControllerTest.java), [`OrderControllerTest#purchase_keyOfExactly128AllowedChars_isAccepted`](../src/test/java/com/ticketflow/infrastructure/web/OrderControllerTest.java) y [`HardeningEndToEndIT#idempotencyKey_shorterThan16Chars_is400WithoutEchoingIt_and16CharsIsAccepted`](../src/test/java/com/ticketflow/infrastructure/web/HardeningEndToEndIT.java).
+
+### DP-003: OrderId derivado de la clave (SHA-256) y semántica de replay
+- **Tipo:** Interpretación del enunciado
+- **Feature:** F-012 (compras); espacio de nombres propio de las cortesías en F-021; republicación y desacople de la petición en F-023
+- **Estado:** Vigente
+- **Qué:** el `orderId` no es aleatorio: [`OrderId`](../src/main/java/com/ticketflow/domain/model/OrderId.java)`.fromIdempotencyKey` calcula SHA-256 de `"ticketflow:order:" + clave` y lo formatea con el *layout* de un UUID de nombre (versión 5). Las cortesías usan otro prefijo (`ticketflow:complimentary:`) para que una compra y una cortesía con la misma clave nunca coincidan. Como el `orderId` es la clave primaria de la tabla `orders` y la orden se crea con `attribute_not_exists(orderId)`, **una clave = una orden** sin consulta previa ni tabla de claves. Semántica de replay: misma clave y mismo payload devuelve la **misma orden** (`202`, mismo `orderId`; el `status` puede haber avanzado); misma clave con otro payload es `409 idempotency-key-reused`; si la orden de esa clave ya fue liberada es `409 idempotent-order-not-active` (hay que usar una clave nueva); un replay de una orden aún `RESERVED` **republica** el mensaje a SQS (duplicados inocuos: el consumidor es idempotente); la cadena reservar, publicar y compensar se desacopla de la cancelación del cliente ([`Detached`](../src/main/java/com/ticketflow/infrastructure/web/Detached.java)).
+- **Por qué:** el enunciado exige que los reintentos no dupliquen compras («compras duplicadas» en el contexto, «idempotencia» en seguridad) sin decir cómo. Un índice secundario no puede garantizar unicidad y es eventualmente consistente; derivar el id de la clave sí. Además un `orderId` expuesto no permite recuperar la clave (SHA-256).
+- **Configurar, cambiar o quitar:** no es configurable (lógica de dominio). Cambiar el prefijo cambiaría el `orderId` de las claves ya usadas (rompería los replays de órdenes existentes).
+- **Impacto y riesgo:** la clave **no** está ligada a un cliente: dos clientes con la misma clave colisionan en la misma orden (ver [`DP-002`](decisions.md#dp-002-idempotency-key-obligatoria-de-16-a-128-caracteres-y-con-un-conjunto-de-caracteres-seguro)). Una orden liberada «consume» su clave para siempre.
+- **Verificación:** [`RequestPurchaseUseCaseIT`](../src/test/java/com/ticketflow/usecase/RequestPurchaseUseCaseIT.java) (50 peticiones iguales en paralelo producen una sola orden), [`RequestPurchaseUseCaseTest`](../src/test/java/com/ticketflow/usecase/RequestPurchaseUseCaseTest.java), [`ValueObjectsTest`](../src/test/java/com/ticketflow/domain/model/ValueObjectsTest.java), [`PurchaseConcurrencyIT`](../src/test/java/com/ticketflow/concurrency/PurchaseConcurrencyIT.java) (tormentas de reintentos), [`HardeningEndToEndIT`](../src/test/java/com/ticketflow/infrastructure/web/HardeningEndToEndIT.java) (republicación y desconexión del cliente) y [`DetachedTest`](../src/test/java/com/ticketflow/infrastructure/web/DetachedTest.java).
+
+### DP-004: La orden usa los estados de la entrada; sin EXPIRED ni FAILED
+- **Tipo:** Interpretación del enunciado
+- **Feature:** F-009 (auditoría con motivo) y F-012 (compensación); F-013 (consulta)
+- **Estado:** Vigente
+- **Qué:** el enunciado define exactamente cinco estados de **entrada** y, en RF-4, dice que la consulta de una orden devuelve uno de esos cinco. Por eso el estado de una [`Order`](../src/main/java/com/ticketflow/domain/model/Order.java) es un [`TicketStatus`](../src/main/java/com/ticketflow/domain/model/TicketStatus.java) y **no existen** los estados `EXPIRED` ni `FAILED`. Una reserva que expira (o cuya publicación a SQS falla y se compensa) vuelve a `AVAILABLE`, y el **motivo** se guarda en la entrada de auditoría: `"reservation expired"` ([`ProcessOrderUseCase`](../src/main/java/com/ticketflow/usecase/ProcessOrderUseCase.java), `EXPIRED_REASON`) o `"enqueue failed"` ([`RequestPurchaseUseCase`](../src/main/java/com/ticketflow/usecase/RequestPurchaseUseCase.java), `PUBLISH_FAILED_REASON`). La respuesta de `GET /orders/{id}` omite `reservationExpiresAt` salvo en `RESERVED` y `PENDING_CONFIRMATION` ([`OrderMapper`](../src/main/java/com/ticketflow/infrastructure/web/OrderMapper.java)).
+- **Por qué:** añadir estados rompería la lista cerrada del enunciado y la matriz de transiciones (5x5). La consecuencia visible: quien consulta una orden liberada ve `AVAILABLE` (no «expirada»); para saber por qué hay que mirar `order_audit`.
+- **Configurar, cambiar o quitar:** no es configurable. Introducir `EXPIRED`/`FAILED` implica ampliar [`TicketStatus`](../src/main/java/com/ticketflow/domain/model/TicketStatus.java) y su matriz, las transiciones del adaptador, `docs/architecture.md`, el README y las métricas.
+- **Impacto y riesgo:** el cliente no distingue «liberada por expiración» de «liberada por fallo» desde la API. No hay endpoint de consulta de la auditoría ([`DP-009`](decisions.md#dp-009-tabla-order_audit-para-la-auditoría-de-transiciones)).
+- **Verificación:** [`TicketStatusTest`](../src/test/java/com/ticketflow/domain/model/TicketStatusTest.java) (matriz completa 5x5), [`OrderTest`](../src/test/java/com/ticketflow/domain/model/OrderTest.java), [`ReleaseExpiredReservationsUseCaseIT`](../src/test/java/com/ticketflow/usecase/ReleaseExpiredReservationsUseCaseIT.java), [`RequestPurchaseSqsEndToEndIT`](../src/test/java/com/ticketflow/usecase/RequestPurchaseSqsEndToEndIT.java) (compensación) y [`OrderControllerTest#get_stateWithoutLiveReservation_omitsExpiry`](../src/test/java/com/ticketflow/infrastructure/web/OrderControllerTest.java).
+
+### DP-005: Frontera de expiración: vencida cuando expiresAt <= ahora
+- **Tipo:** Interpretación del enunciado
+- **Feature:** F-017
+- **Estado:** Vigente
+- **Qué:** una reserva está vencida cuando `reservationExpiresAt <= now` (no solo `<`). Lo usan [`ProcessOrderUseCase`](../src/main/java/com/ticketflow/usecase/ProcessOrderUseCase.java) (`!expiresAt.isAfter(now)`), la consulta de candidatas de [`DynamoDbOrderRepository`](../src/main/java/com/ticketflow/infrastructure/persistence/DynamoDbOrderRepository.java) (`#expires <= :now`) y [`ReleaseExpiredReservationsUseCase`](../src/main/java/com/ticketflow/usecase/ReleaseExpiredReservationsUseCase.java); `docs/architecture.md` lo documenta igual.
+- **Por qué:** el enunciado dice «superaron el tiempo límite», sin precisar el instante exacto. Antes de F-017 el consumidor usaba `<=` y la consulta `<`; se unificó para que consumidor y barrido nunca discrepen en el instante exacto del vencimiento (de lo contrario una orden podría quedar sin dueño un instante).
+- **Configurar, cambiar o quitar:** no es configurable. Cambiarla exige tocar a la vez los tres sitios y las pruebas de frontera.
+- **Impacto y riesgo:** un nanosegundo de diferencia; el riesgo real sería volver a desalinearlos.
+- **Verificación:** [`ProcessOrderUseCaseTest#execute_expiryOneNanoBeforeNow_isExpired_andOneAfterIsValid`](../src/test/java/com/ticketflow/usecase/ProcessOrderUseCaseTest.java), [`ReleaseExpiredReservationsUseCaseIT#execute_boundary_expiresAtEqualsNowIsExpiredOneTickEarlierIsNot`](../src/test/java/com/ticketflow/usecase/ReleaseExpiredReservationsUseCaseIT.java) y [`ReleaseExpiredReservationsUseCaseIT#boundary_sweeperAndProcessOrderAgreeOnTheBoundaryInstant`](../src/test/java/com/ticketflow/usecase/ReleaseExpiredReservationsUseCaseIT.java).
+
+### DP-006: TTL de reserva configurable (por defecto PT10M) y job de expiración opcional
+- **Tipo:** Interpretación del enunciado
+- **Feature:** F-012 (TTL); F-017 (job)
+- **Estado:** Vigente
+- **Qué:** la reserva dura `ticketflow.reservation.ttl` (por defecto `PT10M`, como el «máximo 10 minutos» del enunciado; el valor por defecto solo existe en el `@Value` de [`UseCaseConfig`](../src/main/java/com/ticketflow/infrastructure/config/UseCaseConfig.java), no en `src/main/resources/application.yml`). El job de liberación ([`ReservationExpirationScheduler`](../src/main/java/com/ticketflow/infrastructure/scheduler/ReservationExpirationScheduler.java)) se controla con `ticketflow.expiration.*`: `enabled` es `false` por defecto en la aplicación y `true` en `docker-compose.yml`; `interval` `PT1M`, `initial-delay` `PT10S`, `concurrency` `4`, `max-per-sweep` `500`, `shutdown-timeout` `PT20S`.
+- **Por qué:** configurable para poder probar con TTL cortos sin esperar 10 minutos (los tests usan un reloj fijo). El enunciado no dice cada cuánto debe correr el barrido («periódicamente»): elegimos un minuto. El job está desactivado por defecto para que los contextos de prueba y de desarrollo sin SQS no lancen tareas en segundo plano.
+- **Configurar, cambiar o quitar:** variables `TICKETFLOW_RESERVATION_TTL`, `TICKETFLOW_EXPIRATION_ENABLED`, `TICKETFLOW_EXPIRATION_INTERVAL`, etc. (compose solo reenvía `TICKETFLOW_EXPIRATION_ENABLED`). El TTL debe ser positivo (el constructor lo comprueba) pero **no hay tope superior**: fijarlo por encima de `PT10M` contradiría el «máximo 10 minutos» del enunciado y es responsabilidad de quien despliega.
+- **Impacto y riesgo:** un despliegue que no active el job (ni el consumidor, que libera las reservas vencidas que procesa) **no devuelve nunca** al inventario las reservas sin confirmar que nadie vuelve a procesar. En cualquier despliegue real debe activarse ([`security.md`](security.md#modelo-de-amenazas)).
+- **Verificación:** [`RequestPurchaseUseCaseTest#execute_validRequest_expiryIsExactlyNowPlusTtl`](../src/test/java/com/ticketflow/usecase/RequestPurchaseUseCaseTest.java), [`RequestPurchaseUseCaseTest#execute_customTtl_isHonoured`](../src/test/java/com/ticketflow/usecase/RequestPurchaseUseCaseTest.java), [`RequestPurchaseUseCaseIT#execute_purchase_expiryIsNowPlusTenMinutesWithFixedClock`](../src/test/java/com/ticketflow/usecase/RequestPurchaseUseCaseIT.java), [`ExpirationConfigTest`](../src/test/java/com/ticketflow/infrastructure/config/ExpirationConfigTest.java) y [`ReservationExpirationSchedulerTest`](../src/test/java/com/ticketflow/infrastructure/scheduler/ReservationExpirationSchedulerTest.java).
+
+### DP-007: La venta se confirma automáticamente (no hay pago)
+- **Tipo:** Interpretación del enunciado
+- **Feature:** F-014
+- **Estado:** Vigente
+- **Qué:** el consumidor lleva la orden de `RESERVED` a `PENDING_CONFIRMATION` y de ahí a `SOLD` sin ningún paso externo ([`ProcessOrderUseCase`](../src/main/java/com/ticketflow/usecase/ProcessOrderUseCase.java), [`DynamoDbOrderFulfillmentRepository`](../src/main/java/com/ticketflow/infrastructure/persistence/DynamoDbOrderFulfillmentRepository.java)). `PENDING_CONFIRMATION` es un estado transitorio de un procesamiento automático, no una espera de pago.
+- **Por qué:** RF-3 dice que el consumidor «valida disponibilidad real, actualiza inventario y cambia el estado de la orden», y RF-2 habla de «si no se confirma la compra en ese tiempo», pero el enunciado no define qué confirma una compra ni integra un medio de pago. Lo más simple y coherente con RF-3 es que el procesamiento asíncrono la confirme.
+- **Configurar, cambiar o quitar:** no es configurable. Para integrar un cobro, se insertaría entre los dos pasos de `ProcessOrderUseCase` (el estado `PENDING_CONFIRMATION` ya está modelado para ello).
+- **Impacto y riesgo:** las «ventas» no son pagos reales; las reservas no se quedan jamás esperando a un tercero.
+- **Verificación:** [`ProcessOrderUseCaseTest`](../src/test/java/com/ticketflow/usecase/ProcessOrderUseCaseTest.java), [`ProcessOrderUseCaseIT`](../src/test/java/com/ticketflow/usecase/ProcessOrderUseCaseIT.java) (20 workers sobre la misma orden producen una venta) y [`OrdersApiEndToEndIT`](../src/test/java/com/ticketflow/infrastructure/web/OrdersApiEndToEndIT.java) (compra a `SOLD`).
+
+### DP-008: El inventario son contadores por evento, no entradas individuales
+- **Tipo:** Interpretación del enunciado
+- **Feature:** F-005 (modelo); F-008 (escrituras condicionales)
+- **Estado:** Vigente
+- **Qué:** cada evento tiene **un** registro de inventario ([`Inventory`](../src/main/java/com/ticketflow/domain/model/Inventory.java)) con contadores `available`, `reserved`, `pendingConfirmation`, `sold`, `complimentary` y `version`, que cumplen `available + reserved + pendingConfirmation + sold + complimentary = capacity`. No existe una fila por entrada ni por asiento: una orden reserva una **cantidad**. Todo cambio es un `UpdateItem` condicionado ([`DynamoDbInventoryRepository`](../src/main/java/com/ticketflow/infrastructure/persistence/DynamoDbInventoryRepository.java)) o una transacción ([`DynamoDbOrderPlacementRepository`](../src/main/java/com/ticketflow/infrastructure/persistence/DynamoDbOrderPlacementRepository.java)).
+- **Por qué:** la nota general 1 del enunciado dice que «cada entrada solo puede tener un estado a la vez», y el contexto habla de «asientos vendidos a múltiples personas». El enunciado no define asientos numerados ni identidad individual de entradas. Con contadores, cada unidad pertenece a exactamente un contador a la vez (el invariante lo garantiza) y no hace falta coordinación entre filas.
+- **Configurar, cambiar o quitar:** no es configurable. Pasar a asientos individuales sería un rediseño del modelo de datos; [`aws.md`](aws.md#42-límites-de-escalabilidad-y-camino-de-evolución) analiza la contrapartida (el inventario de un evento es un único ítem de DynamoDB: su límite de escritura acota la compra por evento).
+- **Impacto y riesgo:** no se puede asignar ni consultar un asiento concreto; no hay «qué entrada tiene qué estado», solo cuántas hay en cada estado.
+- **Verificación:** [`InventoryTest`](../src/test/java/com/ticketflow/domain/model/InventoryTest.java) (invariante), [`DynamoDbInventoryRepositoryIT`](../src/test/java/com/ticketflow/infrastructure/persistence/DynamoDbInventoryRepositoryIT.java) (200 reservas en paralelo sobre capacidad 50 dan exactamente 50 éxitos), [`Reconciliation`](../src/test/java/com/ticketflow/concurrency/Reconciliation.java) y [`PurchaseConcurrencyIT`](../src/test/java/com/ticketflow/concurrency/PurchaseConcurrencyIT.java).
+
+### DP-009: Tabla order_audit para la auditoría de transiciones
+- **Tipo:** Interpretación del enunciado
+- **Feature:** F-009
+- **Estado:** Vigente
+- **Qué:** cada cambio de estado de una orden escribe una entrada en la tabla `order_audit` ([`OrderAuditEntry`](../src/main/java/com/ticketflow/domain/model/OrderAuditEntry.java): orden, instante, estado origen, estado destino, actor y, si aplica, motivo) **en la misma `TransactWriteItems`** que el cambio de estado ([`DynamoDbOrderRepository`](../src/main/java/com/ticketflow/infrastructure/persistence/DynamoDbOrderRepository.java), [`DynamoDbOrderFulfillmentRepository`](../src/main/java/com/ticketflow/infrastructure/persistence/DynamoDbOrderFulfillmentRepository.java), [`DynamoDbOrderPlacementRepository`](../src/main/java/com/ticketflow/infrastructure/persistence/DynamoDbOrderPlacementRepository.java)). La clave de ordenación es `<timestamp ISO de 9 decimales>#<uuid>`. Actores: `purchase-request`, `order-processor`, `reservation-expirer` y `complimentary-issuance`.
+- **Por qué:** la nota general 2 exige transiciones «atómicas y auditables» sin decir dónde ni con qué granularidad. Elegimos una auditoría **por orden**, atómica con la transición.
+- **Configurar, cambiar o quitar:** el nombre de la tabla es la constante [`DynamoDbTables`](../src/main/java/com/ticketflow/infrastructure/persistence/DynamoDbTables.java)`.ORDER_AUDIT`; no hay retención ni TTL ni endpoint de lectura. Quitarla incumple la nota general 2.
+- **Impacto y riesgo:** entradas del mismo instante se ordenan al azar y los relojes de varios nodos pueden desfasarse; por eso las comprobaciones siguen la cadena `from -> to`, no el orden de los timestamps ([`verification.md`](verification.md#suite-de-concurrencia-de-extremo-a-extremo-f-022)). El actor de las cortesías es una cadena fija, no la identidad de quien las emite (no hay autenticación de usuarios).
+- **Verificación:** [`DynamoDbOrderRepositoryIT`](../src/test/java/com/ticketflow/infrastructure/persistence/DynamoDbOrderRepositoryIT.java), [`DynamoDbOrderFulfillmentRepositoryIT`](../src/test/java/com/ticketflow/infrastructure/persistence/DynamoDbOrderFulfillmentRepositoryIT.java), [`OrderAuditEntryTest`](../src/test/java/com/ticketflow/domain/model/OrderAuditEntryTest.java) y [`Reconciliation`](../src/test/java/com/ticketflow/concurrency/Reconciliation.java) (la cadena de auditoría de cada orden es válida al final de cada escenario).
+
+### DP-010: GET /events lista todos los eventos, sin filtro ni paginación
+- **Tipo:** Interpretación del enunciado
+- **Feature:** F-018
+- **Estado:** Vigente
+- **Qué:** «consultar eventos disponibles» (objetivo) se implementa como `GET /events` (todos los eventos, **sin** inventario, sin paginar, sin filtrar por disponibilidad) y `GET /events/{id}` (un evento con su inventario) en [`EventController`](../src/main/java/com/ticketflow/infrastructure/web/EventController.java); el listado recorre la tabla con un *scan* paginado internamente ([`DynamoDbEventRepository`](../src/main/java/com/ticketflow/infrastructure/persistence/DynamoDbEventRepository.java)) y sin orden garantizado.
+- **Por qué:** el enunciado no define filtros ni paginación; lo mínimo que cumple «consultar eventos». Para ver la disponibilidad se usa el endpoint de disponibilidad (RF-7).
+- **Configurar, cambiar o quitar:** no es configurable. Añadir paginación o filtros exige cambiar el puerto `EventRepository`, el adaptador y el contrato HTTP.
+- **Impacto y riesgo:** el coste del *scan* crece con el número de eventos; reconocido en las [limitaciones del README](../README.md#limitaciones-conocidas).
+- **Verificación:** [`EventControllerTest`](../src/test/java/com/ticketflow/infrastructure/web/EventControllerTest.java), [`GetAndListEventsUseCaseTest`](../src/test/java/com/ticketflow/usecase/GetAndListEventsUseCaseTest.java) y [`EventsApiEndToEndIT`](../src/test/java/com/ticketflow/infrastructure/web/EventsApiEndToEndIT.java).
+
+### DP-011: Disponibilidad también como stream SSE con sondeo configurable
+- **Tipo:** Interpretación del enunciado
+- **Feature:** F-011 (caso de uso); F-019 (endpoint)
+- **Estado:** Vigente
+- **Qué:** además de la instantánea `GET /events/{id}/availability`, existe `GET /events/{id}/availability/stream` (`text/event-stream`): emite el valor actual de inmediato y después **solo cuando cambia**, consultando DynamoDB cada `ticketflow.availability.poll-interval` (por defecto `1s`, en el `@Value` de [`UseCaseConfig`](../src/main/java/com/ticketflow/infrastructure/config/UseCaseConfig.java)). Si DynamoDB falla de forma transitoria, el servidor se resuscribe con backoff exponencial de 1 s a 30 s sin cerrar la conexión ni filtrar detalles ([`AvailabilityController`](../src/main/java/com/ticketflow/infrastructure/web/AvailabilityController.java), [`GetAvailabilityUseCase`](../src/main/java/com/ticketflow/usecase/GetAvailabilityUseCase.java)).
+- **Por qué:** RF-7 pide la disponibilidad «en tiempo real» y «reactiva» sin definir el mecanismo. Una instantánea basta para cumplirlo; el stream es una lectura más fiel de «tiempo real» y de «reactiva». Se hace por sondeo (no hay *change streams* en DynamoDB Local).
+- **Configurar, cambiar o quitar:** `ticketflow.availability.poll-interval` / `TICKETFLOW_AVAILABILITY_POLL_INTERVAL`. Quitar el stream: borrar el método `stream` del controlador y del caso de uso; la instantánea sigue cubriendo RF-7.
+- **Impacto y riesgo:** una lectura de DynamoDB por intervalo y por cliente conectado (limitación reconocida en el README); sin rate limit de lecturas.
+- **Verificación:** [`AvailabilityControllerTest#stream_knownEvent_producesServerSentEventsAndStopsOnCancel`](../src/test/java/com/ticketflow/infrastructure/web/AvailabilityControllerTest.java), [`AvailabilityControllerTest#resilientStream_transientError_resubscribesWithBackoffAndKeepsEmitting`](../src/test/java/com/ticketflow/infrastructure/web/AvailabilityControllerTest.java) y [`GetAvailabilityUseCaseTest`](../src/test/java/com/ticketflow/usecase/GetAvailabilityUseCaseTest.java).
+
+### DP-012: SQS Standard, consumidor idempotente, DLQ tras 3 recepciones y redrive
+- **Tipo:** Interpretación del enunciado
+- **Feature:** F-002 (colas y DLQ en compose); F-015 (publicador); F-016 (consumidor)
+- **Estado:** Vigente
+- **Qué:** la cola `orders` es una cola SQS **Standard** (no FIFO) con una DLQ `orders-dlq` y política de redrive `maxReceiveCount=3`, `VisibilityTimeout=30`, creadas por `docker/localstack/init-queues.sh` (variables `ORDERS_QUEUE_NAME`, `ORDERS_DLQ_NAME`, `ORDERS_MAX_RECEIVE_COUNT`). El consumidor ([`SqsOrderConsumer`](../src/main/java/com/ticketflow/infrastructure/messaging/SqsOrderConsumer.java)) hace *long polling*, procesa con concurrencia acotada y **borra el mensaje solo después de procesarlo con éxito**; los mensajes envenenados (JSON inválido, versión desconocida) no se borran, así que tras 3 recepciones pasan a la DLQ sin detener al resto. El procesamiento es idempotente, por lo que la entrega duplicada de una cola Standard es inocua ([`ProcessOrderUseCase`](../src/main/java/com/ticketflow/usecase/ProcessOrderUseCase.java)). El mensaje es `{"version":1,"orderId":"..."}` con atributos `orderId`, `eventId`, `messageVersion` y `correlationId` ([`SqsOrderQueuePublisher`](../src/main/java/com/ticketflow/infrastructure/messaging/SqsOrderQueuePublisher.java)). El consumidor está desactivado por defecto (`ticketflow.sqs.consumer.enabled=false`; `true` en compose).
+- **Por qué:** el enunciado exige «al menos una vez» (*at-least-once*) con SQS pero no el tipo de cola, el número de reintentos ni qué hacer con los mensajes que fallan. Standard escala sin límite de grupos; la idempotencia absorbe los duplicados; el umbral de 3 es un compromiso entre reintentar fallos transitorios y no bloquear la cola.
+- **Configurar, cambiar o quitar:** el umbral y los nombres, en `.env`/compose (`ORDERS_MAX_RECEIVE_COUNT`, por defecto `3`); el consumidor, con `ticketflow.sqs.consumer.*` (`batch-size` `10`, `wait-time` `20s`, `visibility-timeout` `30s`, `concurrency` `4`, `shutdown-timeout` `25s`, `min-backoff` `1s`, `max-backoff` `30s`). El `visibility-timeout` debe superar lo que tarda un lote.
+- **Impacto y riesgo:** alguien debe vigilar la DLQ (alarma sugerida en [`aws.md`](aws.md#64-alarmas), solo diseño). Si el proceso muere entre dos pasos de una orden, la recuperación depende de la reentrega de SQS o del barrido de expiración.
+- **Verificación:** [`SqsOrderConsumerIT#consumer_successfulProcessing_deletesMessageSoItIsNeverRedelivered`](../src/test/java/com/ticketflow/infrastructure/messaging/SqsOrderConsumerIT.java), [`SqsOrderConsumerIT#consumer_alwaysFailingMessage_isRedeliveredThenLandsInDlqAndConsumerKeepsRunning`](../src/test/java/com/ticketflow/infrastructure/messaging/SqsOrderConsumerIT.java), [`SqsOrderConsumerIT#consumer_poisonMessages_goToDlqWithoutStoppingOrBlockingValidMessages`](../src/test/java/com/ticketflow/infrastructure/messaging/SqsOrderConsumerIT.java), [`SqsOrderQueuePublisherIT`](../src/test/java/com/ticketflow/infrastructure/messaging/SqsOrderQueuePublisherIT.java), [`MessageRedeliveryIT`](../src/test/java/com/ticketflow/concurrency/MessageRedeliveryIT.java) y [`FailureInjectionIT`](../src/test/java/com/ticketflow/concurrency/FailureInjectionIT.java).
+
+### DP-013: Endpoint de emisión de cortesías
+- **Tipo:** Interpretación del enunciado
+- **Feature:** F-021
+- **Estado:** Vigente
+- **Qué:** `POST /events/{id}/complimentary` ([`ComplimentaryController`](../src/main/java/com/ticketflow/infrastructure/web/ComplimentaryController.java), [`IssueComplimentaryUseCase`](../src/main/java/com/ticketflow/usecase/IssueComplimentaryUseCase.java)) mueve entradas `AVAILABLE -> COMPLIMENTARY` en una sola transacción, con `Idempotency-Key`, cantidad de 1 a 1000 y un `reason` opcional para la auditoría. Es un estado final que nunca cuenta como venta.
+- **Por qué:** el enunciado **define** el estado `COMPLIMENTARY` (final, no contable) pero no dice cómo una entrada llega a serlo. Sin un camino de entrada el estado sería inalcanzable; un endpoint de administración es la lectura más simple.
+- **Configurar, cambiar o quitar:** el acceso se controla con la clave de administración ([`DP-015`](decisions.md#dp-015-guardia-x-admin-key-para-las-rutas-de-administración)). Quitar el endpoint deja `COMPLIMENTARY` sin camino de entrada (el estado, la matriz y los contadores se conservan).
+- **Impacto y riesgo:** el valor máximo por petición (1000) y el `reason` (200 caracteres sin caracteres de control) están en [`DP-020`](decisions.md#dp-020-límites-de-entrada-y-de-longitud). Comparte el presupuesto de rate limit de las escrituras ([`DP-016`](decisions.md#dp-016-rate-limiting-por-cliente-en-las-rutas-de-escritura)).
+- **Verificación:** [`IssueComplimentaryUseCaseTest`](../src/test/java/com/ticketflow/usecase/IssueComplimentaryUseCaseTest.java), [`IssueComplimentaryUseCaseIT`](../src/test/java/com/ticketflow/usecase/IssueComplimentaryUseCaseIT.java), [`ComplimentaryControllerTest`](../src/test/java/com/ticketflow/infrastructure/web/ComplimentaryControllerTest.java) y [`ComplimentaryApiEndToEndIT`](../src/test/java/com/ticketflow/infrastructure/web/ComplimentaryApiEndToEndIT.java).
+
+### DP-014: La cortesía se registra como una orden de estado COMPLIMENTARY
+- **Tipo:** Interpretación del enunciado
+- **Feature:** F-021
+- **Estado:** Vigente
+- **Qué:** cada emisión de cortesías crea un registro [`Order`](../src/main/java/com/ticketflow/domain/model/Order.java) con estado `COMPLIMENTARY`, auditado (`AVAILABLE -> COMPLIMENTARY`, actor `complimentary-issuance`) y con un `orderId` derivado de la `Idempotency-Key` en un espacio de nombres distinto al de las compras ([`DP-003`](decisions.md#dp-003-orderid-derivado-de-la-clave-sha-256-y-semántica-de-replay)). La invariante del dominio se relaja solo para este estado: `reservationExpiresAt >= createdAt` en lugar de `>`. Se consulta con `GET /orders/{id}` y devuelve `COMPLIMENTARY` ([`DynamoDbOrderPlacementRepository`](../src/main/java/com/ticketflow/infrastructure/persistence/DynamoDbOrderPlacementRepository.java)`.issueComplimentary`).
+- **Por qué:** RF-4 lista `COMPLIMENTARY` entre los estados que devuelve la consulta de una orden, y la nota general 2 exige auditar las transiciones: registrar la cortesía como orden da una identidad consultable, idempotente y auditable con la maquinaria existente.
+- **Configurar, cambiar o quitar:** no es configurable. El barrido de expiración y el consumidor nunca recogen estas órdenes (no están en `RESERVED`/`PENDING_CONFIRMATION`).
+- **Impacto y riesgo:** una «orden» sin cliente ni pago; el actor de auditoría es fijo.
+- **Verificación:** [`OrderTest`](../src/test/java/com/ticketflow/domain/model/OrderTest.java), [`IssueComplimentaryUseCaseIT`](../src/test/java/com/ticketflow/usecase/IssueComplimentaryUseCaseIT.java) y [`ComplimentaryApiEndToEndIT#complimentary_endToEnd_movesTicketsAndShowsThemWithoutCountingSales`](../src/test/java/com/ticketflow/infrastructure/web/ComplimentaryApiEndToEndIT.java).
+
+### DP-015: Guardia X-Admin-Key para las rutas de administración
+- **Tipo:** Extra propio
+- **Feature:** F-021
+- **Estado:** Vigente
+- **Qué:** las rutas de administración (hoy solo `/events/{id}/complimentary`, lista `ADMIN_ROUTES` de [`AdminKeyWebFilter`](../src/main/java/com/ticketflow/infrastructure/web/AdminKeyWebFilter.java)) exigen la cabecera `X-Admin-Key`. Es **seguro por defecto**: si `ADMIN_API_KEY` no está configurada (vacía), todas responden `403 admin-disabled`; con clave configurada, una ausente o incorrecta da `401 admin-unauthorized` con `WWW-Authenticate: ApiKey`. La comparación es en tiempo constante: ambos valores se hashean con SHA-256 y se comparan con `MessageDigest.isEqual` ([`AdminKeyGuard`](../src/main/java/com/ticketflow/infrastructure/web/AdminKeyGuard.java)). La clave nunca se registra ni se devuelve.
+- **Por qué:** el enunciado no habla de autenticación ni de roles, pero emitir cortesías (entradas gratis) no puede estar abierto a cualquiera. Una clave compartida por variable de entorno es la protección mínima coherente con «manejo seguro de secretos».
+- **Configurar, cambiar o quitar:** propiedad `ticketflow.admin.api-key` / variable `ADMIN_API_KEY` (por defecto vacía: rutas deshabilitadas). Debe generarse al azar (`openssl rand -hex 32`) y vivir solo en el entorno o en un `.env` ignorado por git. Quitarla dejaría el endpoint de cortesías abierto.
+- **Impacto y riesgo:** no hay autenticación de usuarios; el `401` frente al `403` revela si el servidor tiene una clave configurada (aceptado para local/desarrollo); la clave es un secreto compartido. Límites en [`security.md`](security.md#limitaciones-conocidas).
+- **Verificación:** [`AdminKeyGuardTest`](../src/test/java/com/ticketflow/infrastructure/web/AdminKeyGuardTest.java), [`AdminKeyWebFilterTest`](../src/test/java/com/ticketflow/infrastructure/web/AdminKeyWebFilterTest.java), [`ComplimentaryDisabledWebTest`](../src/test/java/com/ticketflow/infrastructure/web/ComplimentaryDisabledWebTest.java) y [`ComplimentaryApiEndToEndIT#complimentary_adminKeyEnforcedEndToEnd`](../src/test/java/com/ticketflow/infrastructure/web/ComplimentaryApiEndToEndIT.java).
+
+### DP-016: Rate limiting por cliente en las rutas de escritura
+- **Tipo:** Extra propio
+- **Feature:** F-023 (parte 1)
+- **Estado:** Vigente
+- **Qué:** [`RateLimitWebFilter`](../src/main/java/com/ticketflow/infrastructure/web/ratelimit/RateLimitWebFilter.java) aplica un *token bucket* por cliente a `POST /orders`, `POST /events` y `POST /events/{id}/complimentary` (comparten presupuesto; las lecturas no se limitan). Agotado: `429 rate-limit-exceeded` con `Retry-After`, **sin leer el body ni tocar DynamoDB/SQS**. El estado está en memoria y acotado ([`ClientRateLimiter`](../src/main/java/com/ticketflow/infrastructure/web/ratelimit/ClientRateLimiter.java), Caffeine).
+- **Por qué:** «abuso de recursos» es una consideración de seguridad que cita el enunciado sin definir el mecanismo. Un límite barato en la propia aplicación protege a DynamoDB y SQS de un cliente ruidoso.
+- **Configurar, cambiar o quitar:** `ticketflow.rate-limit.*` (`TICKETFLOW_RATE_LIMIT_*`): `enabled` `true`, `capacity` `20`, `refill-per-second` `1`, `max-clients` `10000`, `idle-ttl` `15m`. Desactivarlo: `ticketflow.rate-limit.enabled=false` (solo pruebas); compose no reenvía estas variables.
+- **Impacto y riesgo:** el limitador es **por instancia** (con N réplicas el presupuesto efectivo es N veces mayor) y, con IPv6, la identidad es la dirección completa (un cliente con un `/64` tiene identidades casi ilimitadas): la protección real contra DDoS es de borde ([`aws.md`](aws.md#54-borde-waf-rate-limit-y-ddos), solo diseño). Un cliente legítimo con ráfagas grandes recibe `429`.
+- **Verificación:** [`RateLimitWebTest`](../src/test/java/com/ticketflow/infrastructure/web/RateLimitWebTest.java), [`RateLimitWebFilterTest`](../src/test/java/com/ticketflow/infrastructure/web/ratelimit/RateLimitWebFilterTest.java), [`ClientRateLimiterTest`](../src/test/java/com/ticketflow/infrastructure/web/ratelimit/ClientRateLimiterTest.java), [`TokenBucketTest`](../src/test/java/com/ticketflow/infrastructure/web/ratelimit/TokenBucketTest.java), [`RateLimitPropertiesTest`](../src/test/java/com/ticketflow/infrastructure/config/RateLimitPropertiesTest.java) y [`RateLimitEndToEndIT`](../src/test/java/com/ticketflow/infrastructure/web/RateLimitEndToEndIT.java).
+
+### DP-017: Bloqueo de los intentos fallidos de X-Admin-Key (fuerza bruta)
+- **Tipo:** Extra propio
+- **Feature:** F-023 (parte 1)
+- **Estado:** Vigente
+- **Qué:** cada `X-Admin-Key` ausente o incorrecta gasta un token del presupuesto de **fallos** del cliente (`admin-failure-capacity` `5`, `admin-failure-refill-per-second` `0.05`, es decir uno cada 20 s). Agotado, el cliente recibe `429` **sin que se compare la clave**: ni la correcta se acepta hasta que se rellene un token. El caso «sin clave configurada» (`403`) no cuenta ([`AdminKeyWebFilter`](../src/main/java/com/ticketflow/infrastructure/web/AdminKeyWebFilter.java)).
+- **Por qué:** una clave compartida estática se puede adivinar por fuerza bruta; el bloqueo lo hace inviable sin añadir estado persistente.
+- **Configurar, cambiar o quitar:** `ticketflow.rate-limit.admin-failure-capacity` y `ticketflow.rate-limit.admin-failure-refill-per-second` (misma familia que [`DP-016`](decisions.md#dp-016-rate-limiting-por-cliente-en-las-rutas-de-escritura)); `ticketflow.rate-limit.enabled=false` lo desactiva junto con el límite general.
+- **Impacto y riesgo:** el bloqueo es por **dirección de cliente**: un atacante que comparta dirección con el administrador (NAT, proxy sin `trust-forwarded-for`) puede dejarlo sin acceso unos 20 s por token consumido (limitación 3 de [`security.md`](security.md#limitaciones-conocidas)).
+- **Verificación:** [`AdminKeyWebFilterTest#filter_failedAttempts_areBudgetedThenEvenTheRightKeyIsRefused`](../src/test/java/com/ticketflow/infrastructure/web/AdminKeyWebFilterTest.java), [`AdminKeyWebFilterTest#filter_lockoutOfOneClient_doesNotAffectAnother`](../src/test/java/com/ticketflow/infrastructure/web/AdminKeyWebFilterTest.java) y [`RateLimitEndToEndIT#adminKeyBruteForce_failedAttemptsExhaustTheBudget_thenEvenTheRightKeyIs429`](../src/test/java/com/ticketflow/infrastructure/web/RateLimitEndToEndIT.java).
+
+### DP-018: trust-forwarded-for desactivado por defecto
+- **Tipo:** Extra propio
+- **Feature:** F-023 (parte 1)
+- **Estado:** Vigente
+- **Qué:** el cliente del rate limit se identifica por la dirección del socket; `X-Forwarded-For` solo se tiene en cuenta con `ticketflow.rate-limit.trust-forwarded-for=true` y entonces se usa la **última** entrada (la añadida por el proxy de confianza), que debe ser una IP literal ([`ClientAddressResolver`](../src/main/java/com/ticketflow/infrastructure/web/ratelimit/ClientAddressResolver.java)).
+- **Por qué:** si la aplicación está expuesta sin un proxy delante, confiar en la cabecera dejaría a cada cliente elegir su identidad y esquivar el límite. Seguro por defecto.
+- **Configurar, cambiar o quitar:** `ticketflow.rate-limit.trust-forwarded-for` / `TICKETFLOW_RATE_LIMIT_TRUST_FORWARDED_FOR` (por defecto `false`). Activarlo **solo** detrás de exactamente un proxy de confianza que añada la dirección de su par y con la aplicación inalcanzable sin él.
+- **Impacto y riesgo:** detrás de un proxy/balanceador sin esta opción todos los clientes parecen la misma IP y comparten bucket; mal activada, permite elegir la identidad.
+- **Verificación:** [`ClientAddressResolverTest`](../src/test/java/com/ticketflow/infrastructure/web/ratelimit/ClientAddressResolverTest.java) y [`RateLimitForwardedWebTest`](../src/test/java/com/ticketflow/infrastructure/web/RateLimitForwardedWebTest.java).
+
+### DP-019: Límite de tamaño del cuerpo de las peticiones (32 KB)
+- **Tipo:** Extra propio
+- **Feature:** F-023 (parte 1)
+- **Estado:** Vigente
+- **Qué:** `spring.http.codecs.max-in-memory-size` es `32KB`; un cuerpo mayor recibe `413 payload-too-large` (problem+json). Todos los cuerpos JSON de la API caben holgadamente en 1 KB. Las cabeceras las limita Netty (8 KB por defecto).
+- **Por qué:** acotar la memoria que una petición puede hacer consumir («abuso de recursos»).
+- **Configurar, cambiar o quitar:** `spring.http.codecs.max-in-memory-size` en `src/main/resources/application.yml` (variable `SPRING_HTTP_CODECS_MAX_IN_MEMORY_SIZE`).
+- **Impacto y riesgo:** un cuerpo legítimo mayor de 32 KB sería rechazado (hoy ninguna ruta lo necesita).
+- **Verificación:** [`HardeningEndToEndIT#oversizedBody_is413ProblemJsonOnOrdersAndEvents_withHeadersAndNoInternals`](../src/test/java/com/ticketflow/infrastructure/web/HardeningEndToEndIT.java).
+
+### DP-020: Límites de entrada y de longitud
+- **Tipo:** Extra propio
+- **Feature:** F-018 (evento); F-021 (cortesías); F-023 (ids de ruta)
+- **Estado:** Vigente
+- **Qué:** `POST /events` acepta `name` y `venue` de hasta 200 caracteres y una `capacity` de 1 a **1.000.000** ([`CreateEventRequest`](../src/main/java/com/ticketflow/infrastructure/web/CreateEventRequest.java)); `POST /events/{id}/complimentary` acepta `quantity` de 1 a **1000** y un `reason` de hasta 200 caracteres sin caracteres de control ([`ComplimentaryRequest`](../src/main/java/com/ticketflow/infrastructure/web/ComplimentaryRequest.java), [`IssueComplimentaryCommand`](../src/main/java/com/ticketflow/usecase/IssueComplimentaryCommand.java)); los ids de ruta (`/events/{id}`, `/orders/{id}`) deben ser `[A-Za-z0-9._-]{1,64}` y, si no lo son, la respuesta es un `404` genérico que **nunca repite** lo recibido ([`PathIds`](../src/main/java/com/ticketflow/infrastructure/web/PathIds.java)); `X-Correlation-Id` solo se acepta con `[A-Za-z0-9._-]{1,64}` ([`CorrelationId`](../src/main/java/com/ticketflow/infrastructure/web/error/CorrelationId.java)).
+- **Por qué:** el enunciado pide para un evento «nombre, fecha, lugar, capacidad total» sin ningún límite; los límites acotan el almacenamiento y el tamaño de los registros y evitan reflejar entrada hostil en respuestas y logs.
+- **Configurar, cambiar o quitar:** son constantes de código (`CreateEventRequest.MAX_CAPACITY`, `@Size(max = 200)`, `IssueComplimentaryCommand.MAX_QUANTITY` y `MAX_REASON_LENGTH`, `PathIds.MAX_LENGTH`), no propiedades: cambiarlos exige editar el código, las pruebas y el README.
+- **Impacto y riesgo:** un evento de más de un millón de entradas, o una cortesía de más de 1000 de una vez, se rechaza (esta última se resuelve con varias emisiones).
+- **Verificación:** [`EventControllerTest`](../src/test/java/com/ticketflow/infrastructure/web/EventControllerTest.java), [`ComplimentaryControllerTest`](../src/test/java/com/ticketflow/infrastructure/web/ComplimentaryControllerTest.java), [`OrderControllerTest#get_malformedPathId_is404WithFixedTextAndNeverEchoesInputNorReachesTheUseCase`](../src/test/java/com/ticketflow/infrastructure/web/OrderControllerTest.java), [`HardeningEndToEndIT#invalidPathIds_areGeneric404sThatNeverEchoTheInput`](../src/test/java/com/ticketflow/infrastructure/web/HardeningEndToEndIT.java) y [`IssueComplimentaryUseCaseTest`](../src/test/java/com/ticketflow/usecase/IssueComplimentaryUseCaseTest.java).
+
+### DP-021: Errores como problem+json (RFC 7807) con catálogo propio
+- **Tipo:** Interpretación del enunciado
+- **Feature:** F-020
+- **Estado:** Vigente
+- **Qué:** **todo** error (de dominio, de validación, de Spring o inesperado) sale como `application/problem+json` con `type` `urn:ticketflow:problem:*`, `correlationId` y, si procede, `violations`; el `500` lleva texto fijo (sin trazas ni mensajes internos) y el error real se registra en el servidor. Contención de inventario es `409` con `Retry-After: 1`; fallos transitorios de DynamoDB/SQS son `503` con `Retry-After: 5`; límite excedido `429` con `Retry-After`. Lo traduce [`ApiExceptionHandler`](../src/main/java/com/ticketflow/infrastructure/web/error/ApiExceptionHandler.java) (único traductor) y [`ProblemWebExceptionHandler`](../src/main/java/com/ticketflow/infrastructure/web/error/ProblemWebExceptionHandler.java); el catálogo completo está en el [README](../README.md#catálogo-de-errores).
+- **Por qué:** el enunciado pide «manejo de errores reactivo con estrategias de retry» sin fijar el formato de error. Un único formato estándar y sin fugas de información es lo más seguro y predecible; los reintentos viven en los adaptadores y solo para errores transitorios, y al cliente se le indica cuándo reintentar.
+- **Configurar, cambiar o quitar:** no es configurable. El catálogo se amplía añadiendo el mapeo en `ApiExceptionHandler.translate` y su fila en el README.
+- **Impacto y riesgo:** los rechazos de Netty (URL mal formada como `/%zz`) devuelven un `400` vacío, sin correlation id (no llegan a WebFlux; documentado).
+- **Verificación:** [`ErrorHandlingWebTest`](../src/test/java/com/ticketflow/infrastructure/web/error/ErrorHandlingWebTest.java), [`ErrorHandlingEndToEndIT`](../src/test/java/com/ticketflow/infrastructure/web/error/ErrorHandlingEndToEndIT.java), [`DependencyUnavailableMetricsTest`](../src/test/java/com/ticketflow/infrastructure/web/error/DependencyUnavailableMetricsTest.java) y [`CorrelationMdcIsolationTest`](../src/test/java/com/ticketflow/infrastructure/web/error/CorrelationMdcIsolationTest.java).
+
+### DP-022: Cabeceras de seguridad en todas las respuestas
+- **Tipo:** Extra propio
+- **Feature:** F-023 (parte 1)
+- **Estado:** Vigente
+- **Qué:** [`SecurityHeadersWebFilter`](../src/main/java/com/ticketflow/infrastructure/web/SecurityHeadersWebFilter.java) añade a toda respuesta, errores incluidos: `X-Content-Type-Options: nosniff`, `Cache-Control: no-store`, `Referrer-Policy: no-referrer`, `X-Frame-Options: DENY`, `Content-Security-Policy: default-src 'none'; frame-ancestors 'none'` y `Cross-Origin-Resource-Policy: same-origin`. `Strict-Transport-Security` no se envía a propósito (el TLS se termina en el borde).
+- **Por qué:** endurecimiento barato y sin coste de comportamiento: la API solo sirve JSON y eventos, nunca documentos.
+- **Configurar, cambiar o quitar:** el mapa `HEADERS` del filtro; no hay propiedad. Quitar el filtro elimina la defensa en profundidad sin afectar a la funcionalidad.
+- **Impacto y riesgo:** `Cache-Control: no-store` impide a cualquier caché compartida reutilizar respuestas (también las lecturas).
+- **Verificación:** [`HardeningEndToEndIT#securityHeaders_arePresentOnSuccessAndOnEveryKindOfError`](../src/test/java/com/ticketflow/infrastructure/web/HardeningEndToEndIT.java). Nota: esta prueba falló una vez de forma intermitente en el CI de `main` el 2026-10-03 (ejecución 37128517785) y pasó en el PR; es la única señal de inestabilidad conocida.
+
+### DP-023: Puerto de gestión 8081 con health, info y Prometheus
+- **Tipo:** Extra propio
+- **Feature:** F-024
+- **Estado:** Vigente
+- **Qué:** Actuator se sirve en un **puerto aparte** (`management.server.port`, `8081`), por defecto solo en `127.0.0.1`; la imagen y compose lo ponen en `0.0.0.0` dentro del contenedor y compose lo publica **solo** en `127.0.0.1:8081`. Solo se exponen `health` (sin detalles), `info` y `prometheus`; el puerto público `8080` responde `404` a `/actuator/**`. `liveness` incluye solo `livenessState` (nunca depende de sistemas externos); `readiness` incluye `readinessState`, `dynamodb` y `sqs` con timeout corto y caché ([`DependencyHealthIndicator`](../src/main/java/com/ticketflow/infrastructure/observability/DependencyHealthIndicator.java)).
+- **Por qué:** el enunciado habla de observabilidad solo en la sección AWS (diseño). Operar la aplicación (sondas, métricas) es un extra útil para Docker/ECS; separar el puerto evita exponer Actuator por la API pública.
+- **Configurar, cambiar o quitar:** `management.server.port` / `MANAGEMENT_SERVER_PORT` (`8081`), `management.server.address` / `MANAGEMENT_SERVER_ADDRESS` (`127.0.0.1`), `MANAGEMENT_PORT` del host en compose, `ticketflow.observability.health.timeout` (`2s`) y `cache-ttl` (`5s`). El `HEALTHCHECK` de la imagen depende de este puerto.
+- **Impacto y riesgo:** el endpoint de Prometheus **no tiene autenticación**: la protección es de red (nunca publicarlo en `0.0.0.0` fuera de una red privada).
+- **Verificación:** [`ObservabilityEndpointsTest`](../src/test/java/com/ticketflow/ObservabilityEndpointsTest.java), [`ObservabilityEndToEndIT`](../src/test/java/com/ticketflow/infrastructure/web/ObservabilityEndToEndIT.java), [`DependencyHealthIndicatorTest`](../src/test/java/com/ticketflow/infrastructure/observability/DependencyHealthIndicatorTest.java), [`ReadinessDownEndToEndIT`](../src/test/java/com/ticketflow/infrastructure/web/ReadinessDownEndToEndIT.java) y [`ObservabilityConfigTest`](../src/test/java/com/ticketflow/infrastructure/config/ObservabilityConfigTest.java).
+
+### DP-024: Catálogo de métricas de negocio con etiquetas de baja cardinalidad
+- **Tipo:** Extra propio
+- **Feature:** F-024
+- **Estado:** Vigente
+- **Qué:** métricas Micrometer con prefijo `ticketflow.` (órdenes colocadas, vendidas y liberadas, replays, rechazos, conflictos, resultado del consumidor, publicaciones, profundidad de la cola y de la DLQ, barridos, rechazos del rate limit; unas 50 series). Las etiquetas solo toman valores de enums fijos: **nunca** `orderId`, `eventId`, claves ni direcciones de clientes. Los casos de uso las emiten por puertos sin dependencia de Micrometer ([`BusinessMetrics`](../src/main/java/com/ticketflow/usecase/BusinessMetrics.java), [`OperationalMetrics`](../src/main/java/com/ticketflow/infrastructure/observability/OperationalMetrics.java); adaptador [`MicrometerMetrics`](../src/main/java/com/ticketflow/infrastructure/observability/MicrometerMetrics.java)). Los *gauges* de cola los actualiza un sondeo en segundo plano ([`QueueDepthMonitor`](../src/main/java/com/ticketflow/infrastructure/observability/QueueDepthMonitor.java)).
+- **Por qué:** extra de operación. La baja cardinalidad evita el coste y el riesgo de denegación de servicio por memoria que supondrían series ilimitadas.
+- **Configurar, cambiar o quitar:** `ticketflow.observability.queue-metrics.enabled` (`false`; `true` en compose), `interval` (`15s`) y `timeout` (`5s`). El resto de métricas no se configura. Catálogo completo en [`observability.md`](observability.md#catálogo-de-métricas).
+- **Impacto y riesgo:** el nombre `orders.placed` (no `created`) evita el sufijo `_created` reservado del cliente Prometheus. No se expone la edad del mensaje más antiguo de la cola (no la entrega `GetQueueAttributes`).
+- **Verificación:** [`MicrometerMetricsTest`](../src/test/java/com/ticketflow/infrastructure/observability/MicrometerMetricsTest.java) (todas las etiquetas pertenecen a conjuntos fijos), [`UseCaseMetricsTest`](../src/test/java/com/ticketflow/usecase/UseCaseMetricsTest.java), [`QueueDepthMonitorTest`](../src/test/java/com/ticketflow/infrastructure/observability/QueueDepthMonitorTest.java) y [`RateLimitMetricsTest`](../src/test/java/com/ticketflow/infrastructure/web/RateLimitMetricsTest.java).
+
+### DP-025: Logs JSON (ECS) y correlation id de extremo a extremo
+- **Tipo:** Extra propio
+- **Feature:** F-020 (correlation id); F-024 (logs JSON)
+- **Estado:** Vigente
+- **Qué:** [`CorrelationIdWebFilter`](../src/main/java/com/ticketflow/infrastructure/web/error/CorrelationIdWebFilter.java) acepta `X-Correlation-Id` solo si cumple `[A-Za-z0-9._-]{1,64}` (si no, genera un UUID), lo guarda en el contexto de Reactor, lo escribe en el MDC de cada línea de log, lo devuelve en toda respuesta y lo viaja como atributo del mensaje SQS; el consumidor lo restaura (validado) para seguir una compra API -> cola -> consumidor. Con `LOGGING_STRUCTURED_FORMAT_CONSOLE=ecs` los logs son JSON ECS (una línea por objeto, con `service.name`, `service.version`, `service.environment`).
+- **Por qué:** extra de operación y de seguridad (un id no confiable nunca se refleja ni se registra; los logs no contienen secretos).
+- **Configurar, cambiar o quitar:** `LOGGING_STRUCTURED_FORMAT_CONSOLE` (sin definir, el patrón legible `[correlationId]`; la imagen y compose fijan `ecs`) y `TICKETFLOW_ENVIRONMENT` (`local`, etiqueta `service.environment`).
+- **Impacto y riesgo:** un cliente puede elegir su propio correlation id válido (solo es una etiqueta).
+- **Verificación:** [`StructuredLoggingTest`](../src/test/java/com/ticketflow/infrastructure/observability/StructuredLoggingTest.java), [`CorrelationMdcIsolationTest`](../src/test/java/com/ticketflow/infrastructure/web/error/CorrelationMdcIsolationTest.java), [`ErrorHandlingWebTest`](../src/test/java/com/ticketflow/infrastructure/web/error/ErrorHandlingWebTest.java) y [`SqsOrderConsumerObservabilityTest`](../src/test/java/com/ticketflow/infrastructure/messaging/SqsOrderConsumerObservabilityTest.java).
+
+### DP-026: Endurecimiento del contenedor y de docker-compose
+- **Tipo:** Extra propio
+- **Feature:** F-023 (parte 2)
+- **Estado:** Vigente
+- **Qué:** la imagen de la app usa una etapa de build (JDK) y un runtime *distroless* (`gcr.io/distroless/java25-debian13:nonroot`, sin shell ni gestor de paquetes, usuario 65532), con imágenes base fijadas por digest y un `HEALTHCHECK` en Java ([`Dockerfile`](../Dockerfile)). Compose pone en los tres servicios: puertos solo en `127.0.0.1`, `read_only: true` (con `tmpfs` donde hace falta), `cap_drop: [ALL]`, `no-new-privileges`, límites de memoria/CPU/PIDs y `restart: unless-stopped` ([`docker-compose.yml`](../docker-compose.yml)). LocalStack corre como root dentro de su contenedor (lo exige la imagen) pero sin capacidades y con sistema de ficheros de solo lectura.
+- **Por qué:** el enunciado pide solo «Docker: contenedorización» y «docker-compose que levante todos los servicios». El endurecimiento reduce la superficie de ataque («consideraciones frente a ataques comunes» y buenas prácticas de seguridad).
+- **Configurar, cambiar o quitar:** editar `Dockerfile` y `docker-compose.yml` (los puertos del host con `APP_PORT`, `MANAGEMENT_PORT`, `DYNAMODB_PORT`, `LOCALSTACK_PORT`). Quitar `read_only` o `cap_drop` no cambia la funcionalidad. DynamoDB Local necesita un `/tmp` con `exec` (extrae una librería nativa).
+- **Impacto y riesgo:** los límites de memoria (512 MB la app) pueden provocar OOM en cargas mayores que las probadas; la imagen distroless no tiene shell para depurar. Detalle en [`security.md`](security.md#endurecimiento-de-contenedores).
+- **Verificación:** no hay prueba automática en `./init.sh` (necesita Docker); se verificó a mano con `docker inspect` y la pila completa (historial F-023b); el CI construye y escanea la imagen en `.github/workflows/security.yml` (job `image`).
+
+### DP-027: Escaneos de la cadena de suministro, Dependabot y bloqueo de dependencias
+- **Tipo:** Extra propio
+- **Feature:** F-023 (parte 2)
+- **Estado:** Vigente
+- **Qué:** `.github/workflows/security.yml` (independiente del check `verify`) ejecuta Trivy sobre `gradle.lockfile`, gitleaks sobre el historial y el árbol, y Trivy sobre la imagen sin publicar (falla con HIGH/CRITICAL con corrección disponible), en cada PR, en push a `main` y cada semana; `.github/dependabot.yml` propone actualizaciones semanales de Gradle, GitHub Actions y la imagen base; las dependencias están bloqueadas (`gradle.lockfile`, `lockAllConfigurations()`); las acciones de los workflows y las imágenes base están fijadas por SHA/digest; `.trivyignore` y `.gitleaks.toml` guardan excepciones mínimas justificadas.
+- **Por qué:** «manejo seguro de secretos» y «ataques comunes» (sección de seguridad) no exigen escaneos de CI, pero evitan filtrar secretos y arrastrar dependencias vulnerables.
+- **Configurar, cambiar o quitar:** editar los workflows y `.github/dependabot.yml`; tras cambiar una versión: `./gradlew dependencies --write-locks` (si no, el build falla). Ver [`security.md`](security.md#cadena-de-suministro).
+- **Impacto y riesgo:** el bloqueo de dependencias obliga a regenerar el lockfile en cada actualización; los escaneos pueden fallar por CVE nuevos ajenos al cambio. DynamoDB Local y LocalStack no se escanean (solo desarrollo).
+- **Verificación:** las ejecuciones de `.github/workflows/security.yml` en GitHub Actions (visibles con `gh run list`) y `./init.sh` compilando con el lockfile.
+
+### DP-028: LocalStack fijado a 4.14.0
+- **Tipo:** Interpretación del enunciado
+- **Feature:** F-002
+- **Estado:** Vigente
+- **Qué:** `docker-compose.yml` usa `localstack/localstack:4.14.0` (y `amazon/dynamodb-local:3.3.1`), con etiqueta fija (nunca `latest`).
+- **Por qué:** el enunciado permite «LocalStack u otra solución»; las versiones `2026.x` de LocalStack exigen un `LOCALSTACK_AUTH_TOKEN`, y 4.14.0 es la última que funciona sin él: se prefiere una pila que cualquiera pueda levantar sin cuenta ni secretos.
+- **Configurar, cambiar o quitar:** cambiar la etiqueta en `docker-compose.yml` y en las pruebas de integración que la fijan (p. ej. `E2eContainers`); subirla exige un token (nunca versionarlo). Dependabot no la actualiza (imagen de terceros de solo desarrollo).
+- **Impacto y riesgo:** queda sin parches nuevos ni escaneo de CVE; es solo para desarrollo.
+- **Verificación:** [`E2eContainers`](../src/test/java/com/ticketflow/infrastructure/web/E2eContainers.java), [`SqsOrderConsumerIT`](../src/test/java/com/ticketflow/infrastructure/messaging/SqsOrderConsumerIT.java) y [`SqsOrderQueuePublisherIT`](../src/test/java/com/ticketflow/infrastructure/messaging/SqsOrderQueuePublisherIT.java) fijan la misma versión; la pila de compose se levantó con ella (historial F-002).
+
+### DP-029: CI en GitHub Actions y publicación de la imagen en ghcr.io
+- **Tipo:** Extra propio
+- **Feature:** F-003
+- **Estado:** Vigente
+- **Qué:** `.github/workflows/ci.yml` (job `verify`) ejecuta `./init.sh` con `INCLUDE_INTEGRATION=true` en cada PR y en push a `main` y sube los informes de cobertura; `.github/workflows/release.yml` construye y publica `ghcr.io/alhucave/ticketflow` al empujar un tag `v*` (tags semver y `latest`, con `GITHUB_TOKEN` y `packages: write` solo en ese job). Permisos mínimos y acciones fijadas por SHA.
+- **Por qué:** decisión del usuario; el enunciado no pide CI ni publicación de imágenes. Hace comprobable que el repositorio compila y pasa la barrera del 90 % en un entorno limpio.
+- **Configurar, cambiar o quitar:** editar los workflows. **Estado real:** el repositorio no tiene ningún tag, así que `.github/workflows/release.yml` **nunca se ha ejecutado** y no hay imagen publicada; el primer tag `v*` la publicará y habrá que hacer público el paquete a mano la primera vez.
+- **Impacto y riesgo:** el job `verify` tarda del orden de 7-9 minutos (Testcontainers).
+- **Verificación:** ejecuciones de `.github/workflows/ci.yml` en GitHub Actions; `.github/workflows/release.yml` sin ejecutar (ver arriba).
+
+### DP-030: Repositorio privado; la protección de main no se puede imponer
+- **Tipo:** Extra propio
+- **Feature:** F-003 (el CI y la protección de `main` configurados); documentado tras F-026 (PR #55)
+- **Estado:** Vigente
+- **Qué:** el repositorio es **privado** (decisión del usuario, por tratarse de una prueba técnica de una empresa). En un plan GitHub Free la API de protección de ramas responde `403` («Upgrade to GitHub Pro or make this repository public»): el check `verify` obligatorio, la rama al día y el bloqueo de force-push **ya no se pueden imponer**. `verify` y los escaneos siguen ejecutándose en cada PR, pero no bloquean la fusión.
+- **Por qué:** la privacidad pesa más que la protección técnica; mientras tanto el flujo (PR con `Closes #N` y CI en verde, ver [`AGENTS.md`](../AGENTS.md)) es una **disciplina**, no una regla impuesta.
+- **Configurar, cambiar o quitar:** para recuperar la protección: plan Pro/Team, o volver a hacer público el repositorio y reactivar la regla.
+- **Impacto y riesgo:** un push directo a `main` o una fusión con el CI en rojo es técnicamente posible (de hecho, el CI de `main` del 2026-10-03 quedó en rojo una vez por una prueba intermitente, ver [`DP-022`](decisions.md#dp-022-cabeceras-de-seguridad-en-todas-las-respuestas)).
+- **Verificación:** documentado en el [README](../README.md#cicd) y en [`AGENTS.md`](../AGENTS.md); el `403` de la API de GitHub se comprobó en su día (historial 2026-10-03).
+
+### DP-031: docs/aws.md es solo diseño; nada está desplegado en AWS
+- **Tipo:** Interpretación del enunciado
+- **Feature:** F-026
+- **Estado:** Vigente
+- **Qué:** la sección «Experiencia Cloud-Native en AWS» del enunciado se cumple con un documento de diseño y estimación ([`aws.md`](aws.md)): arquitectura objetivo (ECS Fargate, DynamoDB, SQS con DLQ, ALB con WAF), seguridad en la nube con políticas IAM ilustrativas, observabilidad, gobierno y costes con precios de la lista pública de AWS. **No hay cuenta, recursos, infraestructura como código ni credenciales AWS**; ninguna cifra de capacidad o coste se ha medido en AWS.
+- **Por qué:** el enunciado habla de «buenas prácticas», «enfoque» y «consideraciones» (no de desplegar) en esa sección; el alcance de la entrega es local con Docker.
+- **Configurar, cambiar o quitar:** n/a. Desplegar de verdad exigiría IaC, cuenta y las brechas de producción listadas en [`aws.md`](aws.md#92-qué-falta-para-producción).
+- **Impacto y riesgo:** quien lea el documento no debe asumir que la arquitectura se ha probado en AWS.
+- **Verificación:** documento revisado en F-026; sus enlaces y diagramas se comprobaron (historial). Estado explícito en la sección «Alcance y estado» de [`aws.md`](aws.md#1-alcance-y-estado).
+
+### DP-032: Registro vivo de trazabilidad (requirements.md y decisions.md) exigido por el arnés
+- **Tipo:** Extra propio
+- **Feature:** F-027
+- **Estado:** Vigente
+- **Qué:** [`requirements.md`](requirements.md) (matriz de trazabilidad del enunciado) y este registro, más el campo `origin` y la lista `decisions` de cada feature en [`feature_list.json`](../feature_list.json), la validación mecánica de `init.sh`, el checkpoint C13 de [`CHECKPOINTS.md`](../CHECKPOINTS.md), la regla de [`AGENTS.md`](../AGENTS.md) y la plantilla `.github/pull_request_template.md`.
+- **Por qué:** se echó en falta cuando se detectó que el máximo de 10 entradas por orden ([`DP-001`](decisions.md#dp-001-máximo-de-10-entradas-por-orden)) no estaba en el enunciado y ningún documento lo decía. Se seguirán añadiendo features de criterio propio: este registro es cómo mantenemos explícito qué es del enunciado y qué es nuestro.
+- **Configurar, cambiar o quitar:** `./init.sh --check-registry` valida solo este registro; las reglas están en el script (paso «Validating spec traceability and decisions register»).
+- **Impacto y riesgo:** exige disciplina (actualizar el registro en cada feature); el validador detecta referencias rotas, DP huérfanos y estados no válidos, pero **no puede juzgar** si el `origin` de una feature es honesto: eso es trabajo del líder al redactarla y del reviewer (C13).
+- **Verificación:** los controles negativos del informe `progress/impl_spec-traceability.md` (cada regla del validador se rompió a propósito y falló con el mensaje esperado).

@@ -6,6 +6,7 @@
     "status": "done",
     "depends_on": [],
     "issue": 1,
+    "origin": "spec",
     "title": "Gradle project bootstrap",
     "description": "Create the Gradle (Kotlin DSL) project with Java 25 toolchain, Spring Boot 4.x, WebFlux, AWS SDK v2 (dynamodb-enhanced async, sqs), JUnit 5, Mockito, reactor-test, Testcontainers and JaCoCo. Create the com.ticketflow package skeleton (domain, usecase, infrastructure) and a health endpoint.",
     "acceptance": [
@@ -24,6 +25,11 @@
       "F-001"
     ],
     "issue": 2,
+    "origin": "spec",
+    "decisions": [
+      "DP-012",
+      "DP-028"
+    ],
     "title": "Dockerfile and docker-compose with DynamoDB Local and LocalStack SQS",
     "description": "Multi-stage Dockerfile for the app (non-root user) and docker-compose.yml that starts the app, DynamoDB Local and LocalStack (SQS). Include an init script that creates the queues (orders queue + DLQ). Provide .env.example.",
     "acceptance": [
@@ -42,6 +48,11 @@
       "F-001"
     ],
     "issue": 3,
+    "origin": "own",
+    "decisions": [
+      "DP-029",
+      "DP-030"
+    ],
     "title": "GitHub Actions CI and ghcr.io image publishing",
     "description": "Workflow ci.yml running ./init.sh on every PR and push to main (Java 25, Docker available for Testcontainers). Workflow release.yml that builds and pushes ghcr.io/alhucave/ticketflow on tags v*.",
     "acceptance": [
@@ -60,6 +71,7 @@
       "F-001"
     ],
     "issue": 4,
+    "origin": "spec",
     "title": "Ticket status enum and transition rules",
     "description": "Implement TicketStatus (AVAILABLE, RESERVED, PENDING_CONFIRMATION, SOLD, COMPLIMENTARY) with a pure transition function using pattern matching and a domain exception for invalid transitions. Include flags: isFinal, isSale (only SOLD).",
     "acceptance": [
@@ -78,6 +90,10 @@
       "F-004"
     ],
     "issue": 5,
+    "origin": "spec",
+    "decisions": [
+      "DP-008"
+    ],
     "title": "Domain records, errors and repository ports",
     "description": "Create records Event, Inventory (counters + version), Order, OrderAuditEntry, value objects (EventId, OrderId, Quantity, IdempotencyKey) and ports EventRepository, InventoryRepository, OrderRepository, OrderQueuePublisher returning Mono/Flux. Define domain exceptions (EventNotFound, InsufficientInventory, OrderNotFound, ReservationExpired, ConcurrentModification).",
     "acceptance": [
@@ -96,6 +112,7 @@
       "F-005"
     ],
     "issue": 6,
+    "origin": "spec",
     "title": "DynamoDB async client configuration and table provisioning",
     "description": "Configure DynamoDbEnhancedAsyncClient with endpoint override for local, region and credentials via properties/env. Provision tables events, inventory, orders (with GSIs) and order_audit on startup when enabled by property.",
     "acceptance": [
@@ -113,6 +130,7 @@
       "F-006"
     ],
     "issue": 7,
+    "origin": "spec",
     "title": "DynamoDB EventRepository adapter",
     "description": "Implement EventRepository: save event together with its initial inventory (all capacity as available) and find by id / list.",
     "acceptance": [
@@ -130,6 +148,10 @@
       "F-006"
     ],
     "issue": 8,
+    "origin": "spec",
+    "decisions": [
+      "DP-008"
+    ],
     "title": "Inventory repository with conditional writes",
     "description": "Implement InventoryRepository operations reserve(eventId, qty), confirmSale, release, issueComplimentary, each as a single UpdateItem with ConditionExpression and version increment. Map ConditionalCheckFailed to InsufficientInventory or ConcurrentModification. Retry with backoff only on transient errors.",
     "acceptance": [
@@ -148,6 +170,11 @@
       "F-006"
     ],
     "issue": 9,
+    "origin": "spec",
+    "decisions": [
+      "DP-004",
+      "DP-009"
+    ],
     "title": "Order repository with audit trail and idempotency lookup",
     "description": "Implement OrderRepository: create, findById, findByIdempotencyKey (GSI), transition status with a conditional write on the expected current status, append audit entries, and query expired reservations (GSI status + expiresAt).",
     "acceptance": [
@@ -166,6 +193,7 @@
       "F-007"
     ],
     "issue": 10,
+    "origin": "spec",
     "title": "Create and query events use cases",
     "description": "CreateEventUseCase, GetEventUseCase, ListEventsUseCase with validation (name, date in the future, venue, capacity > 0).",
     "acceptance": [
@@ -184,6 +212,10 @@
       "F-008"
     ],
     "issue": 11,
+    "origin": "spec",
+    "decisions": [
+      "DP-011"
+    ],
     "title": "Real-time availability use case",
     "description": "GetAvailabilityUseCase returning a snapshot (available, reserved, pendingConfirmation, sold, complimentary) and a Flux stream variant that emits on changes (polling interval configurable).",
     "acceptance": [
@@ -202,6 +234,12 @@
       "F-009"
     ],
     "issue": 12,
+    "origin": "interpretation",
+    "decisions": [
+      "DP-003",
+      "DP-004",
+      "DP-006"
+    ],
     "title": "Purchase request use case (reserve + enqueue)",
     "description": "RequestPurchaseUseCase: validate, honor Idempotency-Key (return existing order), atomically reserve inventory with 10-minute expiry, persist order as RESERVED, publish to the order queue and return orderId immediately. If publishing fails after reserving, release the reservation and mark the order failed. NOTES (from F-009 review): (1) Idempotency: a GSI cannot enforce uniqueness and is eventually consistent, so derive the orderId deterministically from the Idempotency-Key (or write a key-reservation item with attribute_not_exists) so two concurrent requests with the same key cannot create two orders. (2) Stay within the five spec states: a failed/compensated order ends in AVAILABLE and the reason is recorded in the audit entry; do NOT add EXPIRED/FAILED states (the spec has exactly AVAILABLE, RESERVED, PENDING_CONFIRMATION, SOLD, COMPLIMENTARY). (3) Prefer OrderRepository.transition over saveAuditEntry so status and audit stay atomic. (4) Order and inventory writes are separate: design the compensation/ordering so a crash between them cannot oversell (reserve inventory first, then create the order; release on failure).",
     "acceptance": [
@@ -220,6 +258,10 @@
       "F-009"
     ],
     "issue": 13,
+    "origin": "interpretation",
+    "decisions": [
+      "DP-004"
+    ],
     "title": "Order status query use case",
     "description": "GetOrderStatusUseCase returning current status (any of the five states), quantity, event and expiry; OrderNotFound otherwise.",
     "acceptance": [
@@ -238,6 +280,10 @@
       "F-009"
     ],
     "issue": 14,
+    "origin": "spec",
+    "decisions": [
+      "DP-007"
+    ],
     "title": "Process order use case (consumer logic)",
     "description": "ProcessOrderUseCase: idempotent handling of an order message: RESERVED -> PENDING_CONFIRMATION -> SOLD, validating the reservation is still valid (not expired) and real inventory. Reprocessing a SOLD order is a no-op. Expired reservations end released. NOTE (from F-008 review): InventoryRepository has no operations for the pendingConfirmation counter yet (reserve, confirmSale, release, issueComplimentary only); extend the port and adapter (e.g. markPending: reserved -> pendingConfirmation, and confirm/release from pendingConfirmation) as part of this feature. NOTES (from F-009 review): treat OrderStatusConflictException and OrderNotFoundException from reprocessing as benign (idempotent redelivery; GSI reads are eventually consistent). Order transition and inventory update are two writes: order them so a crash cannot leave a sale without inventory movement (or document the reconciliation). NOTE (from F-012 review): reuse OrderPlacementRepository.releaseReservation for the expired-reservation path; releaseReservation accepts PENDING_CONFIRMATION.",
     "acceptance": [
@@ -257,6 +303,10 @@
       "F-005"
     ],
     "issue": 15,
+    "origin": "spec",
+    "decisions": [
+      "DP-012"
+    ],
     "title": "SQS order queue publisher adapter",
     "description": "Implement OrderQueuePublisher with the AWS SDK v2 async SQS client. Message body is a versioned JSON record with orderId; include message attributes for tracing. Retry with backoff on transient errors. NOTE (from F-012 review): UseCaseConfig currently wires an always-error OrderQueuePublisher fallback until the SQS adapter exists; remove that fallback and wire the real SQS publisher here.",
     "acceptance": [
@@ -275,6 +325,10 @@
       "F-015"
     ],
     "issue": 16,
+    "origin": "spec",
+    "decisions": [
+      "DP-012"
+    ],
     "title": "SQS consumer with at-least-once semantics and DLQ",
     "description": "Reactive long-polling consumer that calls ProcessOrderUseCase and deletes the message only after success. Configure visibility timeout, maxReceiveCount and DLQ redrive. Bounded concurrency; graceful shutdown. NOTE (from F-012 review): if the process dies between the placement transaction and the publish, an order stays RESERVED with no queue message (reclaimed on expiry); also the consumer must ignore messages whose order is no longer RESERVED (e.g. released after a failed publish). NOTE (from F-014 review): ProcessOrderUseCase returns a sealed ProcessOrderResult (Sold, ReleasedAsExpired, AlreadyProcessed, OrderMissing): ack the message for all of them; let transient errors and a final OrderStatusConflictException (after 5 re-reads) propagate so SQS redelivers. If a worker dies between the two steps (RESERVED->PENDING_CONFIRMATION, ->SOLD) recovery relies on SQS redelivery (or the expiry sweep).",
     "acceptance": [
@@ -294,6 +348,11 @@
       "F-009"
     ],
     "issue": 17,
+    "origin": "spec",
+    "decisions": [
+      "DP-005",
+      "DP-006"
+    ],
     "title": "Scheduled release of expired reservations",
     "description": "Reactive scheduler that periodically finds expired reservations and, per order, atomically transitions it to expired and returns inventory to available. Safe under multiple app instances (conditional transition ensures one winner). NOTES (from F-009 review): expired reservations end in AVAILABLE (no EXPIRED state; spec: tickets return to available inventory), with the reason in the audit entry. findExpiredReservations is GSI-based (eventually consistent): rely on OrderRepository.transition's conditional write so concurrent sweepers have a single winner and treat OrderStatusConflictException as benign. NOTE (from F-012 review): use OrderPlacementRepository.releaseReservation (single TransactWriteItems: conditional order update + audit + inventory reserved->available; accepts RESERVED and PENDING_CONFIRMATION) for expiry, instead of separate writes. An order whose publish never happened stays RESERVED and is reclaimed here. NOTE (from F-014 review): align the expiry boundary: ProcessOrderUseCase treats expiresAt <= now as expired while docs/architecture.md and OrderRepository.findExpiredReservations use expiresAt < now; make them consistent (update docs and the query or the use case) and test the boundary. Also reuse OrderPlacementRepository.releaseReservation (already used by ProcessOrderUseCase for the expired path).",
     "acceptance": [
@@ -312,6 +371,11 @@
       "F-010"
     ],
     "issue": 18,
+    "origin": "spec",
+    "decisions": [
+      "DP-010",
+      "DP-020"
+    ],
     "title": "Events REST endpoints",
     "description": "POST /events, GET /events/{id}, GET /events with request/response DTOs as records and bean validation.",
     "acceptance": [
@@ -332,6 +396,12 @@
       "F-013"
     ],
     "issue": 19,
+    "origin": "interpretation",
+    "decisions": [
+      "DP-002",
+      "DP-003",
+      "DP-011"
+    ],
     "title": "Orders and availability REST endpoints",
     "description": "POST /orders (Idempotency-Key header, returns 202 + orderId), GET /orders/{id}, GET /events/{id}/availability and GET /events/{id}/availability/stream (text/event-stream). NOTE (from F-011 review): GetAvailabilityUseCase.stream ends with an error once DynamoDB transient-error retries are exhausted; the SSE endpoint must resubscribe/retry with backoff (e.g. Flux.retryWhen) and never leak internal error details to the client. NOTE (from F-012 review): map IdempotentOrderNotActiveException (replayed key whose order was released) and IdempotencyKeyReusedException to non-202 responses (409); OrderEnqueueFailedException to a 5xx/503 telling the client to retry with a new Idempotency-Key. NOTE (from F-013 review): OrderStatusView exposes reservationExpiresAt even for SOLD/COMPLIMENTARY orders; omit it from the REST response DTO when the status is final.",
     "acceptance": [
@@ -350,6 +420,11 @@
       "F-018"
     ],
     "issue": 20,
+    "origin": "interpretation",
+    "decisions": [
+      "DP-021",
+      "DP-025"
+    ],
     "title": "Global reactive error handling",
     "description": "Central handler mapping domain exceptions to RFC 7807 problem details: 404, 409 (insufficient inventory, concurrent modification), 410 (expired reservation), 400, 429 and 500 without leaking internals.",
     "acceptance": [
@@ -368,6 +443,13 @@
       "F-019"
     ],
     "issue": 21,
+    "origin": "interpretation",
+    "decisions": [
+      "DP-013",
+      "DP-014",
+      "DP-015",
+      "DP-020"
+    ],
     "title": "Issue complimentary tickets",
     "description": "Use case and endpoint POST /events/{id}/complimentary that moves tickets AVAILABLE -> COMPLIMENTARY. Final state, excluded from sales totals.",
     "acceptance": [
@@ -387,6 +469,7 @@
       "F-017"
     ],
     "issue": 22,
+    "origin": "spec",
     "title": "End-to-end concurrency and consistency tests",
     "description": "Integration tests that fire many parallel purchase requests over limited capacity and assert no oversell, correct counters, no duplicate orders for the same Idempotency-Key and correct release after expiry. NOTE (from F-014 review): audit sort keys are <timestamp>#<uuid>, so two entries in the same instant order randomly and clock skew between nodes could reorder them; the integration tests use a clock advancing 1 ms per read. Consider asserting audit ORDER only where the timestamps are strictly increasing, and document the limitation. NOTE (from F-019 review): add an end-to-end test for POST /orders with a non-existent eventId (the 404 mapping exists but is untested end to end).",
     "acceptance": [
@@ -405,6 +488,19 @@
       "F-019"
     ],
     "issue": 23,
+    "origin": "interpretation",
+    "decisions": [
+      "DP-001",
+      "DP-002",
+      "DP-016",
+      "DP-017",
+      "DP-018",
+      "DP-019",
+      "DP-020",
+      "DP-022",
+      "DP-026",
+      "DP-027"
+    ],
     "title": "Security hardening",
     "description": "Secrets only via env vars, request size limits, per-client rate limiting on POST /orders, max quantity per order, input validation, idempotency protection against malicious retries, dependency vulnerability scan in CI, and non-root, minimal runtime image. NOTE (from F-012 review): scope the Idempotency-Key per principal/client so one client cannot collide with or probe another's orders (OrderId is derived from the key alone); do not cancel the purchase pipeline on client disconnect (e.g. detach the reserve/publish chain from the request subscription). NOTE (from F-017 review): SqsOrderConsumer and ReservationExpirationScheduler share a `running` flag across runs; a stop() followed by start() while a previous drain/sweep is still running can overlap the old loop with the new one (data-safe thanks to conditional writes, but wasteful). Fix both lifecycles with a per-start generation token captured in the repeat predicate, and add a restart-during-drain test. NOTE (from F-019 review): if a client disconnects after the reservation transaction and before the message is published, the order stays RESERVED with no queue message and a replay of the same Idempotency-Key returns 202 WITHOUT republishing until the reservation expires (the expiry scheduler is off by default outside docker-compose). Fix: on a replay whose existing order is still RESERVED, republish the message (duplicates are safe: the consumer is idempotent) and/or detach the reserve+publish chain from the request subscription so a disconnect cannot cancel it; add a test that simulates the disconnect. NOTES (from F-020 review): (1) 404 details echo the path id (e.g. 'Event not found: ../../etc'): validate id format at the web layer (or stop echoing unvalidated input) so user input is never reflected; (2) a DynamoDB/SQS outage currently surfaces as a generic 500: map transient infrastructure failures (throttling, timeouts, connection errors) to 503 + Retry-After via the existing ApiExceptionHandler; (3) Netty-level rejections (malformed URL like /%zz, illegal header characters) return an empty 400 without X-Correlation-Id: acceptable, but document it; (4) throw the web-level RateLimitExceededException (already mapped to 429 + Retry-After by F-020) from the rate limiter. NOTES (from F-021 review): rate-limit failed X-Admin-Key attempts (brute-force protection) on the admin routes in addition to POST /orders; the audit actor of complimentary issuance is a fixed string ('complimentary-issuance'): document that it should carry the caller identity once real authentication exists; 401 (wrong key) vs 403 (no key configured) reveals that the server has no key set: acceptable for a local/dev setup, document it in docs/security.md. PROGRESS: PART 1 (application-level hardening) is merged via PR 'F-023a': rate limiting (per client, bounded, XFF only if trusted), failed admin-key lockout, 413 body limit, Idempotency-Key min length 16, validated path ids, republish on replay of a RESERVED order, detached purchase chain, lifecycle generation tokens, 503 for transient infrastructure errors, security headers, secret masking. REMAINING = PART 2 (supply chain and infrastructure): dependency vulnerability scan + secret scanning in CI (pinned action SHAs), Dependabot (gradle, github-actions, docker), container/compose hardening (resource limits, read_only, cap_drop, no-new-privileges, minimal JRE image, HEALTHCHECK), and docs/security.md with the threat model including these LIMITATIONS flagged by the part 1 review: IPv6 clients are keyed per full address (a /64 gives effectively unlimited identities: bucket by /64 or rely on an edge layer, see F-026), the limiter is per instance, the admin lockout is per client address so a shared address can lock the real admin out for ~20 s per token, Idempotency-Key is not scoped per principal (there is no user authentication: mitigated by the 16-char minimum and by deriving the OrderId with SHA-256 so the key cannot be recovered from an order id), 401 vs 403 reveals whether an admin key is configured, the audit actor of complimentary issuance is a fixed string.",
     "acceptance": [
@@ -423,6 +519,12 @@
       "F-019"
     ],
     "issue": 24,
+    "origin": "own",
+    "decisions": [
+      "DP-023",
+      "DP-024",
+      "DP-025"
+    ],
     "title": "Metrics, structured logging and tracing hooks",
     "description": "Actuator + Micrometer metrics (orders created/sold/expired, queue lag, conditional-write conflicts), structured JSON logs with correlation id, readiness/liveness probes.",
     "acceptance": [
@@ -440,6 +542,7 @@
       "F-022"
     ],
     "issue": 25,
+    "origin": "spec",
     "title": "README, diagrams and request collection",
     "description": "Complete README (solution, install, Docker commands, architectural decisions, endpoint examples), Mermaid architecture and sequence diagrams explaining component interactions, and a Postman/Insomnia or curl collection demonstrating the main flows.",
     "acceptance": [
@@ -458,12 +561,39 @@
       "F-025"
     ],
     "issue": 26,
+    "origin": "spec",
+    "decisions": [
+      "DP-031"
+    ],
     "title": "AWS cloud-native documentation (deferred)",
     "description": "Document the target AWS deployment (ECS Fargate, DynamoDB, SQS+DLQ, Secrets Manager, CloudWatch, IaC), cloud security best practices, cost estimate, observability and governance. Documentation only, no real deployment.",
     "acceptance": [
       "docs/aws.md with architecture diagram",
       "Security, cost, observability and governance sections",
       "Explicitly states that nothing is deployed to AWS"
+    ]
+  },
+  {
+    "id": "F-027",
+    "name": "spec-traceability-and-decisions-register",
+    "phase": 10,
+    "status": "in_progress",
+    "depends_on": [
+      "F-026"
+    ],
+    "issue": 56,
+    "origin": "own",
+    "decisions": [
+      "DP-032"
+    ],
+    "title": "Spec traceability and register of own decisions",
+    "description": "Make explicit, and keep up to date, what the statement asks for and what we decided ourselves. docs/requirements.md is a traceability matrix derived from the original statement (PDF); docs/decisions.md is the register of decisions NOT required by the statement (interpretation of the statement or own extra), each with a DP-NNN id. The harness keeps both alive: feature_list.json carries an origin (spec/interpretation/own) and the decisions ids on every feature, init.sh validates them mechanically, CHECKPOINTS.md (C13), AGENTS.md and the pull request template make the register part of every feature. Documentation and harness only: no application code changes.",
+    "acceptance": [
+      "docs/requirements.md: traceability matrix derived from the ORIGINAL PDF text (re-extracted, not from memory): every functional requirement, technical requirement, deliverable, security and cloud-native item -> status (met / met with interpretation / partial / design only / not met) -> where it is implemented (files/classes) -> evidence (tests, ITs, docs); honest about gaps and interpretations",
+      "docs/decisions.md: register of decisions NOT required by the statement, classified as interpretation of the statement or own extra, each with id (DP-NNN), feature, what, why, how to configure/change/remove, impact/risk and status; seeded with the real existing ones (max 10 tickets per order, Idempotency-Key rules, rate limiting and admin lockout, complimentary endpoint + admin key, input limits, management port, security headers, hardening, etc.), each verified against the code",
+      "feature_list.json gets an origin field (spec/interpretation/own) on every feature and decisions ids for non-spec ones; init.sh validates it mechanically (valid origin, referenced DP ids exist, no orphan DP, no duplicate or malformed ids, valid matrix statuses), with negative controls proving the validator fails when it should",
+      "CHECKPOINTS.md (new checkpoint C13), AGENTS.md (workflow) and .github/pull_request_template.md make the register part of every feature/PR",
+      "README links both documents; every path/link in the new docs resolves; no application code changed"
     ]
   }
 ]
