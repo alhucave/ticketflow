@@ -281,3 +281,18 @@ No hay tests nuevos en `src/` porque no hay código de aplicación nuevo (el «t
 ```
 
 `git diff main --stat -- src build.gradle.kts Dockerfile docker-compose.yml .github/workflows` no muestra ningún cambio. (La línea de este informe crece unas líneas tras añadir esta sección.)
+
+## Ronda 2 (respuesta a CHANGES_REQUESTED)
+
+Cambio 1 (bloqueante) y observaciones baratas. Solo docs/arnés; nada en `src/`, build, Dockerfile, compose ni workflows. F-027 sigue `in_progress`.
+
+- **DP-033 (nueva, `Extra propio`)**: «la fecha del evento debe ser futura». Verificado en `CreateEventUseCase` (`!command.startsAt().isAfter(clock.instant())` -> `InvalidEventException`) y en `CreateEventUseCaseTest#execute_dateNotInFuture_failsWithInvalidEvent` (igual a ahora, pasada, nula). Añadida al registro, al índice, a `decisions` de F-010 y enlazada en la fila RF-1 (estado ahora `Cumplido con interpretación`, junto a DP-020).
+- **DP-034 (nueva, `Interpretación del enunciado`)**: cobertura del 90 % medida como líneas globales. Verificado en `build.gradle.kts` (`counter = "LINE"`, `COVEREDRATIO`, `minimum = 0.90`, una sola regla global). Registrada en `decisions` de F-001 y enlazada en EN-3 y EN-3.0 (ambas pasan a `Cumplido con interpretación`).
+- **Resumen de cobertura** de `requirements.md`: Cumplido 42 / Cumplido con interpretación 20 (RF-1, EN-3, EN-3.0 pasan de la primera a la segunda; el total sigue en 69). Nota: el 44/18 del encargo solo contemplaba RF-1; con DP-034 son 3 filas.
+- **DP-028** reclasificada a `Extra propio` (registro e índice).
+- **DP-015**: anotada la asimetría `POST /events` anónimo (solo rate limiting, DP-016) frente a cortesías con `X-Admin-Key`.
+
+Salidas:
+- `./init.sh --check-registry`: `OK: 27 features with origin, 34 decisions, 69 requirement rows`
+- Verificador de enlaces/anclas sobre `docs/decisions.md` y `docs/requirements.md`: `607 links 0 bad`
+- `./init.sh` completo: `BUILD SUCCESSFUL in 31s` / `==> init.sh OK`

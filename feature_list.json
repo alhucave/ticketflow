@@ -7,6 +7,9 @@
     "depends_on": [],
     "issue": 1,
     "origin": "spec",
+    "decisions": [
+      "DP-034"
+    ],
     "title": "Gradle project bootstrap",
     "description": "Create the Gradle (Kotlin DSL) project with Java 25 toolchain, Spring Boot 4.x, WebFlux, AWS SDK v2 (dynamodb-enhanced async, sqs), JUnit 5, Mockito, reactor-test, Testcontainers and JaCoCo. Create the com.ticketflow package skeleton (domain, usecase, infrastructure) and a health endpoint.",
     "acceptance": [
@@ -194,6 +197,9 @@
     ],
     "issue": 10,
     "origin": "spec",
+    "decisions": [
+      "DP-033"
+    ],
     "title": "Create and query events use cases",
     "description": "CreateEventUseCase, GetEventUseCase, ListEventsUseCase with validation (name, date in the future, venue, capacity > 0).",
     "acceptance": [

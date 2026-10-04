@@ -42,11 +42,13 @@ Es un artefacto **vivo**: lo exige el arnés (`./init.sh` falla si se desincroni
 | [DP-025](#dp-025-logs-json-ecs-y-correlation-id-de-extremo-a-extremo) | Logs JSON (ECS) y correlation id de extremo a extremo | Extra propio | Vigente |
 | [DP-026](#dp-026-endurecimiento-del-contenedor-y-de-docker-compose) | Endurecimiento del contenedor y de docker-compose | Extra propio | Vigente |
 | [DP-027](#dp-027-escaneos-de-la-cadena-de-suministro-dependabot-y-bloqueo-de-dependencias) | Escaneos de la cadena de suministro, Dependabot y bloqueo de dependencias | Extra propio | Vigente |
-| [DP-028](#dp-028-localstack-fijado-a-4140) | LocalStack fijado a 4.14.0 | Interpretación del enunciado | Vigente |
+| [DP-028](#dp-028-localstack-fijado-a-4140) | LocalStack fijado a 4.14.0 | Extra propio | Vigente |
 | [DP-029](#dp-029-ci-en-github-actions-y-publicación-de-la-imagen-en-ghcrio) | CI en GitHub Actions y publicación de la imagen en ghcr.io | Extra propio | Vigente |
 | [DP-030](#dp-030-repositorio-privado-la-protección-de-main-no-se-puede-imponer) | Repositorio privado; la protección de main no se puede imponer | Extra propio | Vigente |
 | [DP-031](#dp-031-docsawsmd-es-solo-diseño-nada-está-desplegado-en-aws) | docs/aws.md es solo diseño; nada está desplegado en AWS | Interpretación del enunciado | Vigente |
 | [DP-032](#dp-032-registro-vivo-de-trazabilidad-requirementsmd-y-decisionsmd-exigido-por-el-arnés) | Registro vivo de trazabilidad (requirements.md y decisions.md) exigido por el arnés | Extra propio | Vigente |
+| [DP-033](#dp-033-la-fecha-del-evento-debe-ser-futura) | La fecha del evento debe ser futura | Extra propio | Vigente |
+| [DP-034](#dp-034-la-cobertura-mínima-se-mide-como-líneas-globales-de-jacoco) | La cobertura mínima se mide como líneas globales de JaCoCo | Interpretación del enunciado | Vigente |
 
 ## Plantilla
 
@@ -222,7 +224,7 @@ Copie este bloque al final de la sección «Decisiones», con el siguiente `DP-N
 - **Qué:** las rutas de administración (hoy solo `/events/{id}/complimentary`, lista `ADMIN_ROUTES` de [`AdminKeyWebFilter`](../src/main/java/com/ticketflow/infrastructure/web/AdminKeyWebFilter.java)) exigen la cabecera `X-Admin-Key`. Es **seguro por defecto**: si `ADMIN_API_KEY` no está configurada (vacía), todas responden `403 admin-disabled`; con clave configurada, una ausente o incorrecta da `401 admin-unauthorized` con `WWW-Authenticate: ApiKey`. La comparación es en tiempo constante: ambos valores se hashean con SHA-256 y se comparan con `MessageDigest.isEqual` ([`AdminKeyGuard`](../src/main/java/com/ticketflow/infrastructure/web/AdminKeyGuard.java)). La clave nunca se registra ni se devuelve.
 - **Por qué:** el enunciado no habla de autenticación ni de roles, pero emitir cortesías (entradas gratis) no puede estar abierto a cualquiera. Una clave compartida por variable de entorno es la protección mínima coherente con «manejo seguro de secretos».
 - **Configurar, cambiar o quitar:** propiedad `ticketflow.admin.api-key` / variable `ADMIN_API_KEY` (por defecto vacía: rutas deshabilitadas). Debe generarse al azar (`openssl rand -hex 32`) y vivir solo en el entorno o en un `.env` ignorado por git. Quitarla dejaría el endpoint de cortesías abierto.
-- **Impacto y riesgo:** no hay autenticación de usuarios; el `401` frente al `403` revela si el servidor tiene una clave configurada (aceptado para local/desarrollo); la clave es un secreto compartido. Límites en [`security.md`](security.md#limitaciones-conocidas).
+- **Impacto y riesgo:** no hay autenticación de usuarios. Asimetría deliberada y conocida: `POST /events` (crear eventos) es anónimo, igual que las compras, y solo está protegido por el rate limiting ([`DP-016`](decisions.md#dp-016-rate-limiting-por-cliente-en-las-rutas-de-escritura)), mientras que las cortesías exigen `X-Admin-Key`; el enunciado no define roles y proteger la creación de eventos habría roto el ejemplo de uso anónimo. El `401` frente al `403` revela si el servidor tiene una clave configurada (aceptado para local/desarrollo); la clave es un secreto compartido. Límites en [`security.md`](security.md#limitaciones-conocidas).
 - **Verificación:** [`AdminKeyGuardTest`](../src/test/java/com/ticketflow/infrastructure/web/AdminKeyGuardTest.java), [`AdminKeyWebFilterTest`](../src/test/java/com/ticketflow/infrastructure/web/AdminKeyWebFilterTest.java), [`ComplimentaryDisabledWebTest`](../src/test/java/com/ticketflow/infrastructure/web/ComplimentaryDisabledWebTest.java) y [`ComplimentaryApiEndToEndIT#complimentary_adminKeyEnforcedEndToEnd`](../src/test/java/com/ticketflow/infrastructure/web/ComplimentaryApiEndToEndIT.java).
 
 ### DP-016: Rate limiting por cliente en las rutas de escritura
@@ -346,7 +348,7 @@ Copie este bloque al final de la sección «Decisiones», con el siguiente `DP-N
 - **Verificación:** las ejecuciones de `.github/workflows/security.yml` en GitHub Actions (visibles con `gh run list`) y `./init.sh` compilando con el lockfile.
 
 ### DP-028: LocalStack fijado a 4.14.0
-- **Tipo:** Interpretación del enunciado
+- **Tipo:** Extra propio
 - **Feature:** F-002
 - **Estado:** Vigente
 - **Qué:** `docker-compose.yml` usa `localstack/localstack:4.14.0` (y `amazon/dynamodb-local:3.3.1`), con etiqueta fija (nunca `latest`).
@@ -394,3 +396,23 @@ Copie este bloque al final de la sección «Decisiones», con el siguiente `DP-N
 - **Configurar, cambiar o quitar:** `./init.sh --check-registry` valida solo este registro; las reglas están en el script (paso «Validating spec traceability and decisions register»).
 - **Impacto y riesgo:** exige disciplina (actualizar el registro en cada feature); el validador detecta referencias rotas, DP huérfanos y estados no válidos, pero **no puede juzgar** si el `origin` de una feature es honesto: eso es trabajo del líder al redactarla y del reviewer (C13).
 - **Verificación:** los controles negativos del informe `progress/impl_spec-traceability.md` (cada regla del validador se rompió a propósito y falló con el mensaje esperado).
+
+### DP-033: La fecha del evento debe ser futura
+- **Tipo:** Extra propio
+- **Feature:** F-010 (regla en el caso de uso); F-018 (se expone como `400 invalid-event`)
+- **Estado:** Vigente
+- **Qué:** [`CreateEventUseCase`](../src/main/java/com/ticketflow/usecase/CreateEventUseCase.java) rechaza crear un evento si `startsAt` es nulo o no es estrictamente posterior al instante actual del reloj inyectado (`InvalidEventException("Event date must be in the future")`, que la API devuelve como `400 invalid-event`). Un evento con fecha igual o anterior a «ahora» no se puede crear.
+- **Por qué:** el enunciado (RF-1) solo pide que el evento tenga «fecha»; no dice que deba ser futura. Se añadió porque vender entradas de un evento ya pasado carece de sentido y suele ser un error del cliente.
+- **Configurar, cambiar o quitar:** no es configurable. Quitar la condición `!command.startsAt().isAfter(clock.instant())` de `CreateEventUseCase` y la prueba correspondiente; el resto del sistema no depende de ella (no hay lógica que cierre las ventas al llegar la fecha).
+- **Impacto y riesgo:** no se pueden cargar eventos históricos (p. ej. para migraciones o pruebas con fechas pasadas); la regla solo se evalúa al crear, así que un evento que ya existe sigue admitiendo compras después de su fecha: nada las cierra.
+- **Verificación:** [`CreateEventUseCaseTest#execute_dateNotInFuture_failsWithInvalidEvent`](../src/test/java/com/ticketflow/usecase/CreateEventUseCaseTest.java) (fecha igual a «ahora», pasada y nula); documentada en el [README](../README.md).
+
+### DP-034: La cobertura mínima se mide como líneas globales de JaCoCo
+- **Tipo:** Interpretación del enunciado
+- **Feature:** F-001
+- **Estado:** Vigente
+- **Qué:** el enunciado exige «cobertura mínima del 90 %» sin decir qué métrica. La barrera `jacocoTestCoverageVerification` de [`build.gradle.kts`](../build.gradle.kts) usa `counter = "LINE"`, `value = "COVEREDRATIO"`, `minimum = 0.90` sobre el total del proyecto (una sola regla global, no por clase ni por paquete), y excluye solo las clases `*Application`.
+- **Por qué:** las líneas son la métrica más habitual y la más fácil de explicar; una regla global es la lectura literal de «cobertura mínima». Las ramas se reportan pero no se exigen.
+- **Configurar, cambiar o quitar:** editar la regla en `jacocoTestCoverageVerification` (`counter` a `BRANCH`, o reglas por clase/paquete); la lista `coverageExcludes` define las exclusiones.
+- **Impacto y riesgo:** una cobertura global del 90 % puede ocultar clases poco probadas; la métrica de ramas no es vinculante.
+- **Verificación:** la barrera se ejecuta en cada `./init.sh` (`check` depende de ella); cifras en [`requirements.md`](requirements.md) (EN-3.0).
