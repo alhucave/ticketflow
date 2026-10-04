@@ -629,7 +629,7 @@
     "id": "F-029",
     "name": "pin-ci-runner-image",
     "phase": 10,
-    "status": "in_progress",
+    "status": "done",
     "depends_on": [
       "F-028"
     ],
