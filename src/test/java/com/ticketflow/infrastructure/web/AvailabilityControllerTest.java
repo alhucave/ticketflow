@@ -1,5 +1,7 @@
 package com.ticketflow.infrastructure.web;
 
+import com.ticketflow.testsupport.TestWebClients;
+import com.ticketflow.testsupport.TestTimeouts;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -39,7 +41,8 @@ class AvailabilityControllerTest {
     @BeforeEach
     void setUp() {
         controller = new AvailabilityController(useCase, Duration.ofSeconds(1), Duration.ofSeconds(8), clock);
-        client = WebTestClient.bindToController(controller).controllerAdvice(new ApiExceptionHandler()).build();
+        client = TestWebClients.build(
+                WebTestClient.bindToController(controller).controllerAdvice(new ApiExceptionHandler()));
     }
 
     @Test
@@ -96,7 +99,7 @@ class AvailabilityControllerTest {
                 .then(() -> source.tryEmitNext(CHANGED))
                 .expectNext(CHANGED_DTO)
                 .thenCancel()
-                .verify(Duration.ofSeconds(5));
+                .verify(TestTimeouts.WAIT);
     }
 
     @Test
@@ -115,7 +118,7 @@ class AvailabilityControllerTest {
 
         StepVerifier.create(controller.resilientStream(ID))
                 .expectNext(INITIAL_DTO, CHANGED_DTO)
-                .thenCancel().verify(Duration.ofSeconds(5));
+                .thenCancel().verify(TestTimeouts.WAIT);
     }
 
     @Test
@@ -133,7 +136,7 @@ class AvailabilityControllerTest {
                 // Jittered backoff (0.5s..1.5s, then the same after the success): 20s covers both retries.
                 .then(() -> clock.advanceTimeBy(Duration.ofSeconds(20)))
                 .expectNext(INITIAL_DTO, CHANGED_DTO)
-                .thenCancel().verify(Duration.ofSeconds(5));
+                .thenCancel().verify(TestTimeouts.WAIT);
         assertThat(subscriptions).hasValue(3);
     }
 
@@ -147,7 +150,7 @@ class AvailabilityControllerTest {
 
         StepVerifier.create(controller.resilientStream(ID))
                 .expectError(EventNotFoundException.class)
-                .verify(Duration.ofSeconds(5));
+                .verify(TestTimeouts.WAIT);
         assertThat(subscriptions).hasValue(1);
     }
 
@@ -160,8 +163,7 @@ class AvailabilityControllerTest {
                 : Flux.just(CHANGED).concatWith(Flux.never())));
         AvailabilityController fast = new AvailabilityController(useCase, Duration.ofMillis(10),
                 Duration.ofMillis(20), reactor.core.scheduler.Schedulers.parallel());
-        WebTestClient fastClient = WebTestClient.bindToController(fast).controllerAdvice(new ApiExceptionHandler())
-                .build();
+        WebTestClient fastClient = TestWebClients.build(WebTestClient.bindToController(fast).controllerAdvice(new ApiExceptionHandler()));
 
         Flux<String> raw = fastClient.get().uri("/events/evt-1/availability/stream")
                 .accept(MediaType.TEXT_EVENT_STREAM).exchange().expectStatus().isOk()

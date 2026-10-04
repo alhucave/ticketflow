@@ -1,5 +1,6 @@
 package com.ticketflow.infrastructure.observability;
 
+import com.ticketflow.testsupport.TestTimeouts;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import java.io.IOException;
@@ -81,7 +82,7 @@ class StructuredLoggingTest {
                     }
                 })
                 .exchangeToMono(response -> response.releaseBody().thenReturn(response.statusCode().value()))
-                .block(Duration.ofSeconds(20));
+                .block(TestTimeouts.WAIT);
     }
 
     private static List<JsonNode> withMessage(List<JsonNode> lines, String fragment) {

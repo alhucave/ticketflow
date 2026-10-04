@@ -1,5 +1,6 @@
 package com.ticketflow.infrastructure.persistence;
 
+import com.ticketflow.testsupport.TestTimeouts;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import com.ticketflow.domain.exception.EventAlreadyExistsException;
@@ -28,7 +29,8 @@ class DynamoDbEventRepositoryIT {
     private static final GenericContainer<?> DYNAMO = new GenericContainer<>(
             DockerImageName.parse("amazon/dynamodb-local:3.3.1"))
             .withCommand("-jar", "DynamoDBLocal.jar", "-sharedDb", "-inMemory")
-            .withExposedPorts(8000);
+            .withExposedPorts(8000)
+            .withStartupTimeout(TestTimeouts.CONTAINER_STARTUP);
 
     private static DynamoDbAsyncClient client;
     private static DynamoDbEventRepository repository;
@@ -70,7 +72,7 @@ class DynamoDbEventRepositoryIT {
 
     @Test
     void findById_savedEvent_roundTripsAllFieldsIncludingInstant() {
-        repository.save(event("it-find")).block(Duration.ofSeconds(10));
+        repository.save(event("it-find")).block(TestTimeouts.WAIT);
 
         StepVerifier.create(repository.findById(new EventId("it-find")))
                 .expectNext(event("it-find")).verifyComplete();
@@ -83,7 +85,7 @@ class DynamoDbEventRepositoryIT {
 
     @Test
     void save_duplicateId_isRejectedAndOriginalIsNotOverwritten() {
-        repository.save(event("it-dup")).block(Duration.ofSeconds(10));
+        repository.save(event("it-dup")).block(TestTimeouts.WAIT);
         var other = new Event(new EventId("it-dup"), "Other", Instant.parse("2031-01-01T00:00:00Z"), "Club", 5);
 
         StepVerifier.create(repository.save(other)).expectError(EventAlreadyExistsException.class).verify();
@@ -93,10 +95,10 @@ class DynamoDbEventRepositoryIT {
 
     @Test
     void findAll_savedEvents_returnsThem() {
-        repository.save(event("it-all-1")).block(Duration.ofSeconds(10));
-        repository.save(event("it-all-2")).block(Duration.ofSeconds(10));
+        repository.save(event("it-all-1")).block(TestTimeouts.WAIT);
+        repository.save(event("it-all-2")).block(TestTimeouts.WAIT);
 
-        var ids = repository.findAll().map(e -> e.id().value()).collectList().block(Duration.ofSeconds(10));
+        var ids = repository.findAll().map(e -> e.id().value()).collectList().block(TestTimeouts.WAIT);
         assertThat(ids).contains("it-all-1", "it-all-2");
     }
 }

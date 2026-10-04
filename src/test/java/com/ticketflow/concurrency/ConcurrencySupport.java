@@ -1,5 +1,6 @@
 package com.ticketflow.concurrency;
 
+import com.ticketflow.testsupport.TestTimeouts;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.awaitility.Awaitility.await;
 
@@ -38,7 +39,7 @@ import tools.jackson.databind.json.JsonMapper;
 public final class ConcurrencySupport {
 
     /** Generous bound for every asynchronous outcome; Awaitility returns as soon as the condition holds. */
-    public static final Duration WAIT = Duration.ofSeconds(90);
+    public static final Duration WAIT = TestTimeouts.WAIT;
     private static final JsonMapper JSON = JsonMapper.builder().build();
     private static final String PROBLEM_PREFIX = "urn:ticketflow:problem:";
 
@@ -104,7 +105,7 @@ public final class ConcurrencySupport {
     public ConcurrencySupport(int port, DynamoDbAsyncClient dynamo, String adminKey) {
         // One generous pool so hundreds of requests are really in flight together.
         ConnectionProvider pool = ConnectionProvider.builder("concurrency-suite").maxConnections(1000)
-                .pendingAcquireMaxCount(5000).pendingAcquireTimeout(Duration.ofSeconds(60)).build();
+                .pendingAcquireMaxCount(5000).pendingAcquireTimeout(TestTimeouts.RESPONSE).build();
         this.web = WebClient.builder().baseUrl("http://localhost:" + port)
                 .clientConnector(new org.springframework.http.client.reactive.ReactorClientHttpConnector(
                         HttpClient.create(pool))).build();

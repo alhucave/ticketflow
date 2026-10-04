@@ -1,5 +1,6 @@
 package com.ticketflow.infrastructure.web;
 
+import com.ticketflow.testsupport.TestWebClients;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -43,10 +44,9 @@ class EventControllerTest {
 
     @BeforeEach
     void setUp() {
-        client = WebTestClient.bindToController(new EventController(create, get, list))
+        client = TestWebClients.build(WebTestClient.bindToController(new EventController(create, get, list))
                 .controllerAdvice(new ApiExceptionHandler())
-                .validator(validator())
-                .build();
+                .validator(validator()));
     }
 
     private static LocalValidatorFactoryBean validator() {

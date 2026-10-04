@@ -1,5 +1,6 @@
 package com.ticketflow.infrastructure.persistence;
 
+import com.ticketflow.testsupport.TestTimeouts;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -150,7 +151,7 @@ class DynamoDbInventoryRepositoryTest {
         StepVerifier.create(repository.reserve(EID, TWO))
                 .expectErrorSatisfies(e -> assertThat(e).isInstanceOf(InsufficientInventoryException.class)
                         .hasMessageContaining("e-1"))
-                .verify(Duration.ofSeconds(5));
+                .verify(TestTimeouts.WAIT);
 
         verify(client, times(1)).updateItem(any(UpdateItemRequest.class));
     }
@@ -183,7 +184,7 @@ class DynamoDbInventoryRepositoryTest {
                 updated(after));
 
         StepVerifier.create(repository.reserve(EID, TWO)).expectNext(after).expectComplete()
-                .verify(Duration.ofSeconds(5));
+                .verify(TestTimeouts.WAIT);
 
         verify(client, times(4)).updateItem(any(UpdateItemRequest.class));
     }
@@ -205,7 +206,7 @@ class DynamoDbInventoryRepositoryTest {
                 CompletableFuture.failedFuture(ProvisionedThroughputExceededException.builder().build()));
 
         StepVerifier.create(repository.reserve(EID, TWO))
-                .expectError(ProvisionedThroughputExceededException.class).verify(Duration.ofSeconds(5));
+                .expectError(ProvisionedThroughputExceededException.class).verify(TestTimeouts.WAIT);
 
         verify(client, times(4)).updateItem(any(UpdateItemRequest.class));
     }
@@ -327,7 +328,7 @@ class DynamoDbInventoryRepositoryTest {
                 };
                 try {
                     // fromItem builds an Inventory, whose constructor rejects any broken invariant
-                    Inventory result = op.apply(EID, qty).block(Duration.ofSeconds(5));
+                    Inventory result = op.apply(EID, qty).block(TestTimeouts.WAIT);
                     successes++;
                     assertThat(result.version()).isEqualTo(successes);
                 } catch (InsufficientInventoryException expected) {

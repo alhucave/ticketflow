@@ -49,6 +49,7 @@ Es un artefacto **vivo**: lo exige el arnés (`./init.sh` falla si se desincroni
 | [DP-032](#dp-032-registro-vivo-de-trazabilidad-requirementsmd-y-decisionsmd-exigido-por-el-arnés) | Registro vivo de trazabilidad (requirements.md y decisions.md) exigido por el arnés | Extra propio | Vigente |
 | [DP-033](#dp-033-la-fecha-del-evento-debe-ser-futura) | La fecha del evento debe ser futura | Extra propio | Vigente |
 | [DP-034](#dp-034-la-cobertura-mínima-se-mide-como-líneas-globales-de-jacoco) | La cobertura mínima se mide como líneas globales de JaCoCo | Interpretación del enunciado | Vigente |
+| [DP-035](#dp-035-las-pruebas-de-integración-usan-plazos-explícitos-y-generosos-desde-un-único-mecanismo) | Las pruebas de integración usan plazos explícitos y generosos desde un único mecanismo | Extra propio | Vigente |
 
 ## Plantilla
 
@@ -416,3 +417,13 @@ Copie este bloque al final de la sección «Decisiones», con el siguiente `DP-N
 - **Configurar, cambiar o quitar:** editar la regla en `jacocoTestCoverageVerification` (`counter` a `BRANCH`, o reglas por clase/paquete); la lista `coverageExcludes` define las exclusiones.
 - **Impacto y riesgo:** una cobertura global del 90 % puede ocultar clases poco probadas; la métrica de ramas no es vinculante.
 - **Verificación:** la barrera se ejecuta en cada `./init.sh` (`check` depende de ella); cifras en [`requirements.md`](requirements.md) (EN-3.0).
+
+### DP-035: Las pruebas de integración usan plazos explícitos y generosos desde un único mecanismo
+- **Tipo:** Extra propio
+- **Feature:** F-028
+- **Estado:** Vigente
+- **Qué:** todo plazo de una prueba (respuesta HTTP de `WebTestClient`, `block`, `StepVerifier.verify`, Awaitility `atMost`, latches, arranque de contenedores de Testcontainers) sale de [`TestTimeouts`](../src/test/java/com/ticketflow/testsupport/TestTimeouts.java): `RESPONSE` = 60 s, `WAIT` = 90 s, `CONTAINER_STARTUP` = 3 min. Los `WebTestClient` que inyecta Spring Boot (`@SpringBootTest` con servidor y `@WebFluxTest`) toman `RESPONSE` de la propiedad `spring.test.webtestclient.timeout` de `src/test/resources/application.properties`; los que se construyen a mano (`bindToController`) pasan por [`TestWebClients`](../src/test/java/com/ticketflow/testsupport/TestWebClients.java). Una prueba fuente-escaneada ([`TimeoutPolicyGuardTest`](../src/test/java/com/ticketflow/testsupport/TimeoutPolicyGuardTest.java)) falla si una prueba declara su propio timeout, construye un cliente sin el helper o arranca un contenedor sin el plazo compartido.
+- **Por qué:** los valores por defecto de las librerías son ajustados (5 s por intercambio de `WebTestClient`, 10 s de Awaitility, 60 s de arranque de contenedor) y un runner de CI cargado puede superarlos sin que nada esté mal. El fallo del run 37128517785 de `main` (`HardeningEndToEndIT`, `Timeout on blocking read for 30000000000 NANOSECONDS`) mostró además que un plazo suelto por clase (`@AutoConfigureWebTestClient(timeout = "30s")`, repetido en siete clases, ausente en otra) no es una política: ver `progress/impl_stabilize-integration-tests.md` para la causa raíz (no era el plazo de 5 s) y para las pruebas.
+- **Configurar, cambiar o quitar:** cambiar las constantes de `TestTimeouts` y, a la vez, `spring.test.webtestclient.timeout` (`TestTimeoutsTest` falla si no coinciden). Quitar la política: borrar el paquete `testsupport`, la propiedad y volver a plazos locales.
+- **Impacto y riesgo:** un plazo es solo una red de seguridad contra una prueba colgada, nunca cambia lo que se afirma; pero un cuelgue real tarda hasta 60-90 s en detectarse (antes 5-30 s) y, con varios cuelgues, alarga el CI. Un plazo mayor **no** arregla un cuelgue de verdad: solo evita falsos negativos por lentitud.
+- **Verificación:** [`TestTimeoutsTest`](../src/test/java/com/ticketflow/testsupport/TestTimeoutsTest.java) (un manejador de 5,5 s hace fallar a un cliente por defecto con la misma excepción que el CI y no al cliente del helper), [`InjectedWebTestClientTimeoutTest`](../src/test/java/com/ticketflow/testsupport/InjectedWebTestClientTimeoutTest.java) e [`InjectedServerWebTestClientTimeoutTest`](../src/test/java/com/ticketflow/testsupport/InjectedServerWebTestClientTimeoutTest.java) (fallan con 5 s si se quita la propiedad: control negativo ejecutado) y `TimeoutPolicyGuardTest`.

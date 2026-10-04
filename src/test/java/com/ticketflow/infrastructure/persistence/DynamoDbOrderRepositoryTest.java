@@ -1,5 +1,6 @@
 package com.ticketflow.infrastructure.persistence;
 
+import com.ticketflow.testsupport.TestTimeouts;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -322,7 +323,7 @@ class DynamoDbOrderRepositoryTest {
 
         StepVerifier.create(repository.transition(
                         OID, TicketStatus.RESERVED, TicketStatus.AVAILABLE, "scheduler", NOW))
-                .expectError(ProvisionedThroughputExceededException.class).verify(Duration.ofSeconds(5));
+                .expectError(ProvisionedThroughputExceededException.class).verify(TestTimeouts.WAIT);
         verify(client, times(4)).transactWriteItems(any(TransactWriteItemsRequest.class));
     }
 

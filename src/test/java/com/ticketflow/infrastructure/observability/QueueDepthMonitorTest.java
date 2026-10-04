@@ -1,5 +1,6 @@
 package com.ticketflow.infrastructure.observability;
 
+import com.ticketflow.testsupport.TestTimeouts;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
@@ -113,7 +114,7 @@ class QueueDepthMonitorTest {
         queueReturns(ORDERS, attrs(7, 2, REDRIVE));
         queueReturns(DLQ, attrs(1, 0, null));
 
-        monitor.refresh().block(Duration.ofSeconds(5));
+        monitor.refresh().block(TestTimeouts.WAIT);
 
         assertThat(gauge("orders", "visible")).isEqualTo(7);
         assertThat(gauge("orders", "in_flight")).isEqualTo(2);
@@ -128,8 +129,8 @@ class QueueDepthMonitorTest {
         queueReturns(ORDERS, attrs(0, 0, REDRIVE));
         queueReturns(DLQ, attrs(0, 0, null));
 
-        monitor.refresh().block(Duration.ofSeconds(5));
-        monitor.refresh().block(Duration.ofSeconds(5));
+        monitor.refresh().block(TestTimeouts.WAIT);
+        monitor.refresh().block(TestTimeouts.WAIT);
 
         assertThat(resolvedDlqNames).hasSize(1);
     }
@@ -138,7 +139,7 @@ class QueueDepthMonitorTest {
     void refresh_queueWithoutRedrivePolicy_leavesDlqUnknown() {
         queueReturns(ORDERS, attrs(3, 1, null));
 
-        monitor.refresh().block(Duration.ofSeconds(5));
+        monitor.refresh().block(TestTimeouts.WAIT);
 
         assertThat(gauge("orders", "visible")).isEqualTo(3);
         assertThat(gauge("dlq", "visible")).isNaN();
@@ -150,10 +151,10 @@ class QueueDepthMonitorTest {
     void refresh_failure_keepsTheLastValuesAndFailsTheRefresh() {
         queueReturns(ORDERS, attrs(5, 1, REDRIVE));
         queueReturns(DLQ, attrs(2, 0, null));
-        monitor.refresh().block(Duration.ofSeconds(5));
+        monitor.refresh().block(TestTimeouts.WAIT);
         queueReturns(ORDERS, CompletableFuture.failedFuture(new IllegalStateException("sqs down")));
 
-        org.assertj.core.api.Assertions.assertThatThrownBy(() -> monitor.refresh().block(Duration.ofSeconds(5)))
+        org.assertj.core.api.Assertions.assertThatThrownBy(() -> monitor.refresh().block(TestTimeouts.WAIT))
                 .isInstanceOf(IllegalStateException.class);
 
         assertThat(gauge("orders", "visible")).isEqualTo(5);
@@ -163,7 +164,7 @@ class QueueDepthMonitorTest {
     @Test
     void ageGauge_growsUntilTheNextSuccessfulRefresh() {
         queueReturns(ORDERS, attrs(0, 0, null));
-        monitor.refresh().block(Duration.ofSeconds(5));
+        monitor.refresh().block(TestTimeouts.WAIT);
         assertThat(registry.get("ticketflow.queue.stats.age.seconds").gauge().value()).isZero();
 
         now.set(now.get().plusSeconds(42));
@@ -253,7 +254,7 @@ class QueueDepthMonitorTest {
         queueReturns(ORDERS, CompletableFuture.completedFuture(GetQueueAttributesResponse.builder()
                 .attributes(map).build()));
 
-        monitor.refresh().block(Duration.ofSeconds(5));
+        monitor.refresh().block(TestTimeouts.WAIT);
 
         assertThat(gauge("orders", "visible")).isNaN();
         assertThat(gauge("orders", "in_flight")).isNaN();

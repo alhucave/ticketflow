@@ -601,5 +601,28 @@
       "CHECKPOINTS.md (new checkpoint C13), AGENTS.md (workflow) and .github/pull_request_template.md make the register part of every feature/PR",
       "README links both documents; every path/link in the new docs resolves; no application code changed"
     ]
+  },
+  {
+    "id": "F-028",
+    "name": "stabilize-integration-tests",
+    "phase": 10,
+    "status": "in_progress",
+    "depends_on": [
+      "F-027"
+    ],
+    "issue": 58,
+    "origin": "own",
+    "decisions": [
+      "DP-035"
+    ],
+    "title": "Stabilize the integration tests (CI timeouts)",
+    "description": "CI on main failed once (run 37128517785) with a TimeoutException at HardeningEndToEndIT.securityHeaders_arePresentOnSuccessAndOnEveryKindOfError; it passed in the PR and in later runs. The job took 8m15s vs the usual 6-7m: a loaded runner pushed one request over the default 5 s WebTestClient response timeout. Test-only change: give every WebTestClient an explicit generous response timeout through one shared mechanism and audit the other fixed timeouts/waits, without weakening any assertion and without production code changes.",
+    "acceptance": [
+      "Root cause confirmed from the failed run log and documented (which call, which timeout, why)",
+      "Every WebTestClient used by the integration/e2e tests gets an explicit, generous response timeout through ONE shared helper/constant (no per-test magic numbers); audit ALL other fixed timeouts/waits in the integration suites for the same exposure and fix the risky ones, WITHOUT weakening any assertion",
+      "No production code change",
+      "Evidence of stability: the full INCLUDE_INTEGRATION=true ./init.sh run at least 5 times in a row, locally, all green; plus a stress run under artificial CPU load that reproduces the failure BEFORE the fix and passes AFTER it",
+      "Registered as a decision in docs/decisions.md (DP-035) and linked from feature_list.json (origin own)"
+    ]
   }
 ]
