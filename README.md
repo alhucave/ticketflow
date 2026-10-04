@@ -19,8 +19,9 @@ Plataforma reactiva de procesamiento de eventos de ticketing (Java 25, Spring Bo
 13. [CI/CD](#cicd)
 14. [Despliegue en AWS (diseño)](#despliegue-en-aws-diseño)
 15. [Decisiones de diseño](#decisiones-de-diseño)
-16. [Solución de problemas](#solución-de-problemas)
-17. [Limitaciones conocidas](#limitaciones-conocidas)
+16. [Enunciado vs decisiones propias](#enunciado-vs-decisiones-propias)
+17. [Solución de problemas](#solución-de-problemas)
+18. [Limitaciones conocidas](#limitaciones-conocidas)
 
 ## Inicio rápido
 
@@ -88,9 +89,10 @@ com.ticketflow
 
 Raíz: Dockerfile · docker-compose.yml · .env.example · init.sh · build.gradle.kts + gradle.lockfile
 docker/        healthcheck de la imagen y script que crea las colas en LocalStack
-docs/          architecture.md · conventions.md · verification.md · security.md · observability.md
+docs/          architecture.md · conventions.md · verification.md · security.md · observability.md · aws.md
+               requirements.md (trazabilidad del enunciado) · decisions.md (decisiones propias, DP-NNN)
 requests/      colección de Postman, entorno, run-newman.sh y demo.sh
-.github/       workflows de CI, seguridad y release; dependabot
+.github/       workflows de CI, seguridad y release; dependabot; plantilla de pull request
 feature_list.json · progress/ · AGENTS.md · CHECKPOINTS.md   # arnés de trabajo por features
 ```
 
@@ -154,22 +156,22 @@ Spring Boot acepta cada propiedad como variable de entorno en mayúsculas con `_
 | `AWS_ACCESS_KEY_ID` / `AWS_SECRET_ACCESS_KEY` | `test` / `test` | Credenciales **ficticias** para DynamoDB Local y LocalStack |
 | `ORDERS_QUEUE_NAME` | `orders` | Cola de órdenes (la crea `init-queues.sh` y la usa la app) |
 | `ORDERS_DLQ_NAME` | `orders-dlq` | Cola de mensajes fallidos |
-| `ORDERS_MAX_RECEIVE_COUNT` | `3` | Recepciones antes de pasar un mensaje a la DLQ |
-| `ADMIN_API_KEY` | vacío | Clave de las rutas admin (`X-Admin-Key`). **Vacía = rutas admin deshabilitadas (`403`)** |
-| `TICKETFLOW_ENVIRONMENT` | `local` | Etiqueta `service.environment` de los logs |
+| `ORDERS_MAX_RECEIVE_COUNT` | `3` | Recepciones antes de pasar un mensaje a la DLQ ([DP-012](docs/decisions.md#dp-012-sqs-standard-consumidor-idempotente-dlq-tras-3-recepciones-y-redrive)) |
+| `ADMIN_API_KEY` | vacío | Clave de las rutas admin (`X-Admin-Key`). **Vacía = rutas admin deshabilitadas (`403`)** ([DP-015](docs/decisions.md#dp-015-guardia-x-admin-key-para-las-rutas-de-administración)) |
+| `TICKETFLOW_ENVIRONMENT` | `local` | Etiqueta `service.environment` de los logs ([DP-025](docs/decisions.md#dp-025-logs-json-ecs-y-correlation-id-de-extremo-a-extremo)) |
 
 ### Propiedades de la aplicación (`ticketflow.*` y relacionadas)
 
 | Propiedad (variable) | Por defecto | Significado |
 |----------------------|-------------|-------------|
-| `ticketflow.admin.api-key` (`ADMIN_API_KEY`) | vacío | Secreto de las rutas admin. Nunca se versiona ni se registra |
-| `ticketflow.orders.max-quantity` | `10` | Máximo de entradas por orden (`400` por encima) |
-| `ticketflow.reservation.ttl` | `PT10M` | Vigencia de una reserva antes de expirar |
-| `ticketflow.availability.poll-interval` | `1s` | Cada cuánto consulta el inventario el stream de disponibilidad |
-| `spring.http.codecs.max-in-memory-size` | `32KB` | Tamaño máximo del body (`413` por encima) |
-| `management.server.port` (`MANAGEMENT_SERVER_PORT`) | `8081` | Puerto del Actuator |
+| `ticketflow.admin.api-key` (`ADMIN_API_KEY`) | vacío | Secreto de las rutas admin. Nunca se versiona ni se registra ([DP-015](docs/decisions.md#dp-015-guardia-x-admin-key-para-las-rutas-de-administración)) |
+| `ticketflow.orders.max-quantity` | `10` | Máximo de entradas por orden (`400` por encima). **Decisión propia: no está en el enunciado** ([DP-001](docs/decisions.md#dp-001-máximo-de-10-entradas-por-orden)) |
+| `ticketflow.reservation.ttl` | `PT10M` | Vigencia de una reserva antes de expirar ([DP-006](docs/decisions.md#dp-006-ttl-de-reserva-configurable-por-defecto-pt10m-y-job-de-expiración-opcional)) |
+| `ticketflow.availability.poll-interval` | `1s` | Cada cuánto consulta el inventario el stream de disponibilidad ([DP-011](docs/decisions.md#dp-011-disponibilidad-también-como-stream-sse-con-sondeo-configurable)) |
+| `spring.http.codecs.max-in-memory-size` | `32KB` | Tamaño máximo del body (`413` por encima) ([DP-019](docs/decisions.md#dp-019-límite-de-tamaño-del-cuerpo-de-las-peticiones-32-kb)) |
+| `management.server.port` (`MANAGEMENT_SERVER_PORT`) | `8081` | Puerto del Actuator ([DP-023](docs/decisions.md#dp-023-puerto-de-gestión-8081-con-health-info-y-prometheus)) |
 | `management.server.address` (`MANAGEMENT_SERVER_ADDRESS`) | `127.0.0.1` | Dirección de escucha del Actuator (la imagen y compose la fijan a `0.0.0.0`) |
-| `LOGGING_STRUCTURED_FORMAT_CONSOLE` | sin definir (la imagen y compose fijan `ecs`) | `ecs` = logs JSON; sin definir = patrón legible `[correlationId]` |
+| `LOGGING_STRUCTURED_FORMAT_CONSOLE` | sin definir (la imagen y compose fijan `ecs`) | `ecs` = logs JSON; sin definir = patrón legible `[correlationId]` ([DP-025](docs/decisions.md#dp-025-logs-json-ecs-y-correlation-id-de-extremo-a-extremo)) |
 
 **DynamoDB** (`ticketflow.dynamodb.*`, `TICKETFLOW_DYNAMODB_*`):
 
@@ -182,7 +184,7 @@ Spring Boot acepta cada propiedad como variable de entorno en mayúsculas con `_
 | `provisioning-max-attempts` | `30` | Intentos de espera a que una tabla esté `ACTIVE` |
 | `provisioning-poll-interval` | `500ms` | Pausa entre esos intentos |
 
-**SQS** (`ticketflow.sqs.*`, `TICKETFLOW_SQS_*`):
+**SQS** (`ticketflow.sqs.*`, `TICKETFLOW_SQS_*`; cola Standard, consumidor idempotente y DLQ: [DP-012](docs/decisions.md#dp-012-sqs-standard-consumidor-idempotente-dlq-tras-3-recepciones-y-redrive)):
 
 | Propiedad | Por defecto | Significado |
 |-----------|-------------|-------------|
@@ -204,7 +206,7 @@ Spring Boot acepta cada propiedad como variable de entorno en mayúsculas con `_
 | `shutdown-timeout` | `25s` | Espera a los mensajes en vuelo al detener la app |
 | `min-backoff` / `max-backoff` | `1s` / `30s` | Backoff exponencial si `ReceiveMessage` falla (reintenta indefinidamente) |
 
-**Expiración de reservas** (`ticketflow.expiration.*`, `TICKETFLOW_EXPIRATION_*`):
+**Expiración de reservas** (`ticketflow.expiration.*`, `TICKETFLOW_EXPIRATION_*`; [DP-006](docs/decisions.md#dp-006-ttl-de-reserva-configurable-por-defecto-pt10m-y-job-de-expiración-opcional), frontera [DP-005](docs/decisions.md#dp-005-frontera-de-expiración-vencida-cuando-expiresat--ahora)):
 
 | Propiedad | Por defecto | Significado |
 |-----------|-------------|-------------|
@@ -215,20 +217,20 @@ Spring Boot acepta cada propiedad como variable de entorno en mayúsculas con `_
 | `max-per-sweep` | `500` | Máximo de órdenes por barrido |
 | `shutdown-timeout` | `PT20S` | Espera al barrido en curso al detener la app |
 
-**Rate limiting** (`ticketflow.rate-limit.*`, `TICKETFLOW_RATE_LIMIT_*`, activo por defecto):
+**Rate limiting** (`ticketflow.rate-limit.*`, `TICKETFLOW_RATE_LIMIT_*`, activo por defecto; extra propio: [DP-016](docs/decisions.md#dp-016-rate-limiting-por-cliente-en-las-rutas-de-escritura)):
 
 | Propiedad | Por defecto | Significado |
 |-----------|-------------|-------------|
 | `enabled` | `true` | Desactiva el limitador (solo pruebas) |
 | `capacity` | `20` | Ráfaga de escrituras por cliente |
 | `refill-per-second` | `1` | Ritmo sostenido de escrituras por cliente |
-| `admin-failure-capacity` | `5` | Intentos fallidos de `X-Admin-Key` tolerados de golpe |
+| `admin-failure-capacity` | `5` | Intentos fallidos de `X-Admin-Key` tolerados de golpe ([DP-017](docs/decisions.md#dp-017-bloqueo-de-los-intentos-fallidos-de-x-admin-key-fuerza-bruta)) |
 | `admin-failure-refill-per-second` | `0.05` | Recuperación de esos intentos (uno cada 20 s) |
 | `max-clients` | `10000` | Clientes seguidos (memoria acotada) |
 | `idle-ttl` | `15m` | Un cliente inactivo se olvida |
-| `trust-forwarded-for` | `false` | Identificar al cliente por la **última** entrada de `X-Forwarded-For` (solo detrás de exactamente un proxy de confianza) |
+| `trust-forwarded-for` | `false` | Identificar al cliente por la **última** entrada de `X-Forwarded-For` (solo detrás de exactamente un proxy de confianza) ([DP-018](docs/decisions.md#dp-018-trust-forwarded-for-desactivado-por-defecto)) |
 
-**Observabilidad** (`ticketflow.observability.*`, `TICKETFLOW_OBSERVABILITY_*`):
+**Observabilidad** (`ticketflow.observability.*`, `TICKETFLOW_OBSERVABILITY_*`; extra propio: [DP-023](docs/decisions.md#dp-023-puerto-de-gestión-8081-con-health-info-y-prometheus), [DP-024](docs/decisions.md#dp-024-catálogo-de-métricas-de-negocio-con-etiquetas-de-baja-cardinalidad)):
 
 | Propiedad | Por defecto | Significado |
 |-----------|-------------|-------------|
@@ -245,10 +247,10 @@ API reactiva sobre `http://localhost:8080`. Los cuerpos de petición y respuesta
 **Reglas comunes**
 
 - **`X-Correlation-Id`** (opcional): si cumple `[A-Za-z0-9._-]{1,64}` se acepta; si no, se genera un UUID. Se devuelve en **todas** las respuestas, en la propiedad `correlationId` de cada error, en cada línea de log y como atributo del mensaje SQS.
-- **`Idempotency-Key`** (obligatoria en `POST /orders` y `POST /events/{id}/complimentary`): 16 a 128 caracteres `[A-Za-z0-9._:-]` (un UUID sirve). Misma clave y mismo payload → la **misma orden** (mismo `orderId`, nada se reserva dos veces; el `status` puede haber avanzado). Misma clave con otro payload → `409 idempotency-key-reused`. Si la orden de esa clave ya fue liberada (publicación fallida o reserva expirada) → `409 idempotent-order-not-active`: use una clave **nueva**. El mínimo de 16 existe porque el `orderId` se deriva solo de la clave (SHA-256): una clave corta y adivinable permitiría chocar con la orden de otro cliente.
+- **`Idempotency-Key`** (obligatoria en `POST /orders` y `POST /events/{id}/complimentary`): 16 a 128 caracteres `[A-Za-z0-9._:-]` (un UUID sirve). Misma clave y mismo payload → la **misma orden** (mismo `orderId`, nada se reserva dos veces; el `status` puede haber avanzado). Misma clave con otro payload → `409 idempotency-key-reused`. Si la orden de esa clave ya fue liberada (publicación fallida o reserva expirada) → `409 idempotent-order-not-active`: use una clave **nueva**. El mínimo de 16 existe porque el `orderId` se deriva solo de la clave (SHA-256): una clave corta y adivinable permitiría chocar con la orden de otro cliente (decisiones [DP-002](docs/decisions.md#dp-002-idempotency-key-obligatoria-de-16-a-128-caracteres-y-con-un-conjunto-de-caracteres-seguro) y [DP-003](docs/decisions.md#dp-003-orderid-derivado-de-la-clave-sha-256-y-semántica-de-replay)).
 - **Rate limit** (por cliente, token bucket): `POST /orders`, `POST /events` y `POST /events/{id}/complimentary` comparten un presupuesto de **20 de ráfaga y 1 por segundo**; agotado → `429 rate-limit-exceeded` con `Retry-After` (segundos) sin leer el body ni tocar DynamoDB/SQS. Las lecturas no se limitan. Además, los intentos **fallidos** de `X-Admin-Key` tienen un presupuesto de 5 (1 cada 20 s): agotado, `429` sin comparar la clave.
 - **Admin**: las rutas de administración exigen `X-Admin-Key` (comparación en tiempo constante con `ADMIN_API_KEY`). Sin clave configurada en el servidor → `403 admin-disabled`; clave ausente o incorrecta → `401 admin-unauthorized`. No hay autenticación de usuarios.
-- Límites: body máximo 32 KB (`413`), máximo 10 entradas por orden, ids de ruta `[A-Za-z0-9._-]{1,64}` (otro formato → `404` genérico).
+- Límites: body máximo 32 KB (`413`), máximo 10 entradas por orden, ids de ruta `[A-Za-z0-9._-]{1,64}` (otro formato → `404` genérico). Ninguno viene del enunciado: [DP-001](docs/decisions.md#dp-001-máximo-de-10-entradas-por-orden), [DP-019](docs/decisions.md#dp-019-límite-de-tamaño-del-cuerpo-de-las-peticiones-32-kb), [DP-020](docs/decisions.md#dp-020-límites-de-entrada-y-de-longitud).
 - Todas las respuestas llevan cabeceras de seguridad (`nosniff`, `no-store`, `X-Frame-Options: DENY`, CSP restrictiva...).
 
 ### Resumen
@@ -418,7 +420,7 @@ La carpeta [`requests/`](requests/) contiene:
 
 | Fichero | Para qué |
 |---------|----------|
-| `ticketflow.postman_collection.json` | Colección de Postman v2.1 (31 peticiones, 63 aserciones): crear/consultar/listar eventos, disponibilidad (instantánea y stream), compra, *polling* hasta `SOLD`, replay, clave reutilizada (`409`), inventario insuficiente (`409`), errores de validación (`400`) e ids inexistentes (`404`), cortesías con y sin clave de admin, sondas y Prometheus en el puerto de gestión |
+| `ticketflow.postman_collection.json` | Colección de Postman v2.1 (32 peticiones y 65 aserciones definidas; `run-newman.sh` ejecuta 31 y 63, porque omite el stream SSE, que no termina nunca): crear/consultar/listar eventos, disponibilidad (instantánea y stream), compra, *polling* hasta `SOLD`, replay, clave reutilizada (`409`), inventario insuficiente (`409`), errores de validación (`400`) e ids inexistentes (`404`), cortesías con y sin clave de admin, sondas y Prometheus en el puerto de gestión |
 | `ticketflow.local.postman_environment.json` | Entorno de Postman: `baseUrl`, `managementUrl`, `adminKey` (rellénela con su `ADMIN_API_KEY`; es de tipo `secret`, no la suba a git) |
 | `run-newman.sh` | Ejecuta la colección con Newman en Docker contra la pila de compose |
 | `demo.sh` | Flujo principal de extremo a extremo con `curl`, con salida legible |
@@ -431,7 +433,7 @@ La carpeta [`requests/`](requests/) contiene:
 
 ## Pruebas y cobertura
 
-`./init.sh` valida `feature_list.json` y ejecuta `./gradlew clean build jacocoTestReport jacocoTestCoverageVerification`: compila, pasa todas las pruebas y **falla si la cobertura de líneas global baja del 90 %** (se excluye solo `*Application`).
+`./init.sh` valida `feature_list.json` y el registro de trazabilidad (ver [Enunciado vs decisiones propias](#enunciado-vs-decisiones-propias); `./init.sh --check-registry` ejecuta solo esa validación) y después ejecuta `./gradlew clean build jacocoTestReport jacocoTestCoverageVerification`: compila, pasa todas las pruebas y **falla si la cobertura de líneas global baja del 90 %** (se excluye solo `*Application`).
 
 | Nivel | Herramientas | Qué cubre |
 |-------|--------------|-----------|
@@ -506,6 +508,15 @@ Detalle en [`docs/architecture.md`](docs/architecture.md#decisiones-clave).
 - **Puerto de métricas** (`BusinessMetrics`, `OperationalMetrics`): interfaces sin framework con implementación `NOOP`; `domain` y `usecase` no dependen de Micrometer y las etiquetas solo admiten enums fijos (baja cardinalidad).
 - **Puerto de gestión separado (`8081`)**: Actuator fuera de la API pública y en loopback; el endpoint de Prometheus no tiene autenticación y no debe exponerse.
 - **Reserva sin mensaje recuperable**: el controlador desacopla «reservar + publicar + compensar» de la suscripción de la petición; un replay de una orden aún `RESERVED` republica su mensaje y, si nadie reintenta, la expiración la libera.
+
+## Enunciado vs decisiones propias
+
+Dos documentos separan lo que pide el enunciado de lo que decidimos nosotros:
+
+- [`docs/requirements.md`](docs/requirements.md): matriz de trazabilidad del enunciado original (cada requisito funcional, técnico, entregable, de seguridad, diagramas y AWS) con su estado (cumplido, cumplido con interpretación, parcial, solo diseño), dónde se implementa y su evidencia. Es honesto sobre lo parcial (p. ej. no hay pruebas de carga ni reportes) y sobre lo que es solo diseño (nada está desplegado en AWS).
+- [`docs/decisions.md`](docs/decisions.md): registro `DP-NNN` de las decisiones que el enunciado **no** exige, como *interpretación del enunciado* o *extra propio* (p. ej. el máximo de 10 entradas por orden, [DP-001](docs/decisions.md#dp-001-máximo-de-10-entradas-por-orden)), con el porqué y cómo configurarlas, cambiarlas o quitarlas.
+
+Se mantienen vivos: cada feature de `feature_list.json` declara su `origin` (`spec`, `interpretation` u `own`) y sus `decisions`, y `./init.sh` falla si el registro se desincroniza (ver [`AGENTS.md`](AGENTS.md#enunciado-vs-decisiones-propias) y el checkpoint C13 de [`CHECKPOINTS.md`](CHECKPOINTS.md)).
 
 ## Solución de problemas
 

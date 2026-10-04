@@ -1,5 +1,5 @@
 # Estado actual
 
 Feature en curso: ninguna
-Proyecto COMPLETO: F-001 a F-026 (26/26) mergeadas en main, todas APPROVED.
-Pendiente opcional (decide el usuario): crear el primer tag v* para publicar la imagen en ghcr.io (hay que hacer publico el paquete a mano la primera vez); licencia del repositorio.
+Completas: F-001 a F-027 (27/27), repo privado.
+Hallazgos abiertos para decidir con el usuario (ver progress/history.md): test inestable en CI (HardeningEndToEndIT, timeout 5 s), TTL de reserva sin tope de 10 min, consumidor/expiracion apagados por defecto, release.yml sin ejecutar.

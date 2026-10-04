@@ -422,6 +422,8 @@ Detalle, catálogo de métricas y alertas en [`docs/observability.md`](observabi
 
 ## Decisiones clave
 
+Las decisiones que el enunciado **no** exige (límites, endurecimiento, observabilidad, CI...) están registradas con su porqué y cómo cambiarlas en [`decisions.md`](decisions.md); lo que el enunciado sí pide, con su estado y evidencia, en [`requirements.md`](requirements.md).
+
 - **Optimistic locking / conditional writes** en vez de locks distribuidos: sin coordinación, escala horizontal.
 - **Idempotency-Key** en `POST /orders` para soportar reintentos del cliente.
 - **Java 25**: records para DTOs, mensajes y value objects; `switch` con pattern matching sobre estados y excepciones (`TicketStatus`, `ProcessOrderUseCase`, `ApiExceptionHandler`); `sealed interface` para los resultados (`ProcessOrderResult`). No se usan virtual threads: el camino es reactivo y no hay código bloqueante que aislar.

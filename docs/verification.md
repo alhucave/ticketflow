@@ -5,9 +5,12 @@ Una feature está verificada cuando `./init.sh` termina en verde y cada criterio
 ## `./init.sh`
 
 1. Valida que `feature_list.json` sea JSON válido y que haya como máximo una feature `in_progress`.
+   - Valida el registro de trazabilidad (F-027): cada feature tiene `origin` válido (`spec`, `interpretation`, `own`); las no-`spec` listan `decisions`; todo `DP-NNN` referenciado existe en [`decisions.md`](decisions.md); no hay `DP` vigentes sin feature, ni ids duplicados o mal formados; cada fila de la matriz de [`requirements.md`](requirements.md) tiene un estado válido (y `Cumplido con interpretación` enlaza un `DP`) y el resumen de cobertura coincide con el conteo. `./init.sh --check-registry` ejecuta solo esta validación y sale (tarda unas décimas de segundo).
 2. Si existe `./gradlew`: ejecuta `./gradlew clean build jacocoTestReport jacocoTestCoverageVerification`.
    - Falla si la cobertura de líneas global baja del **90%**.
 3. Si aún no existe `./gradlew` (antes de la feature F-001), solo corre el paso 1 e informa `BOOTSTRAP`.
+
+El validador solo comprueba coherencia mecánica: no puede juzgar si el `origin` de una feature o el estado de una fila de la matriz son honestos (eso lo revisa el reviewer con el checkpoint C13 de [`CHECKPOINTS.md`](../CHECKPOINTS.md)).
 
 ## Verificación de la cadena de suministro
 
