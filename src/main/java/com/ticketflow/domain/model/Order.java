@@ -1,5 +1,6 @@
 package com.ticketflow.domain.model;
 
+import java.time.Duration;
 import java.time.Instant;
 
 /** A purchase order for a quantity of tickets of one event. */
@@ -11,6 +12,9 @@ public record Order(
         IdempotencyKey idempotencyKey,
         Instant reservationExpiresAt,
         Instant createdAt) {
+
+    /** Statement requirement 2: tickets are reserved temporarily "máximo 10 minutos". Upper bound of any reservation TTL. */
+    public static final Duration MAX_RESERVATION_TTL = Duration.ofMinutes(10);
 
     public Order {
         requireNonNull(id, "id");

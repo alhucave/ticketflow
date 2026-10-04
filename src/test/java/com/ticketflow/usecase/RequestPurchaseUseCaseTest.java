@@ -318,11 +318,48 @@ class RequestPurchaseUseCaseTest {
     }
 
     @Test
+    void constructor_ttlAtOrBelowCap_isAccepted() {
+        var clock = Clock.fixed(NOW, ZoneOffset.UTC);
+        assertThat(Order.MAX_RESERVATION_TTL).isEqualTo(Duration.ofMinutes(10));
+        assertThat(new RequestPurchaseUseCase(placement, orders, queue, clock, Order.MAX_RESERVATION_TTL)).isNotNull();
+        assertThat(new RequestPurchaseUseCase(placement, orders, queue, clock, Duration.parse("PT10M"))).isNotNull();
+        assertThat(new RequestPurchaseUseCase(placement, orders, queue, clock, Duration.ofSeconds(1))).isNotNull();
+        assertThat(new RequestPurchaseUseCase(placement, orders, queue, clock, Duration.ofNanos(1))).isNotNull();
+    }
+
+    @Test
+    void constructor_ttlAboveCap_isRejectedNamingPropertyValueAndMaximum() {
+        var clock = Clock.fixed(NOW, ZoneOffset.UTC);
+        for (Duration tooLong : new Duration[] {Order.MAX_RESERVATION_TTL.plusNanos(1),
+                Order.MAX_RESERVATION_TTL.plusSeconds(1), Duration.ofHours(2)}) {
+            assertThatThrownBy(() -> new RequestPurchaseUseCase(placement, orders, queue, clock, tooLong))
+                    .isInstanceOf(IllegalArgumentException.class)
+                    .hasMessageContaining("ticketflow.reservation.ttl")
+                    .hasMessageContaining(tooLong.toString())
+                    .hasMessageContaining("PT10M");
+        }
+    }
+
+    @Test
+    void execute_ttlAtCap_expiryIsExactlyTenMinutesAfterCreation() {
+        placementSucceeds();
+        when(queue.publish(any())).thenReturn(Mono.empty());
+        var capped = new RequestPurchaseUseCase(placement, orders, queue, Clock.fixed(NOW, ZoneOffset.UTC),
+                Order.MAX_RESERVATION_TTL);
+
+        StepVerifier.create(capped.execute(COMMAND))
+                .assertNext(result -> assertThat(result.reservationExpiresAt()).isEqualTo(NOW.plusSeconds(600)))
+                .verifyComplete();
+    }
+
+    @Test
     void constructor_nonPositiveTtl_throws() {
         var clock = Clock.fixed(NOW, ZoneOffset.UTC);
         assertThatThrownBy(() -> new RequestPurchaseUseCase(placement, orders, queue, clock, Duration.ZERO))
-                .isInstanceOf(IllegalArgumentException.class);
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("ticketflow.reservation.ttl");
         assertThatThrownBy(() -> new RequestPurchaseUseCase(placement, orders, queue, clock, Duration.ofSeconds(-1)))
+                .isInstanceOf(IllegalArgumentException.class).hasMessageContaining("ticketflow.reservation.ttl");
+        assertThatThrownBy(() -> new RequestPurchaseUseCase(placement, orders, queue, clock, Duration.ofNanos(-1)))
                 .isInstanceOf(IllegalArgumentException.class);
         assertThatThrownBy(() -> new RequestPurchaseUseCase(placement, orders, queue, clock, null))
                 .isInstanceOf(IllegalArgumentException.class);

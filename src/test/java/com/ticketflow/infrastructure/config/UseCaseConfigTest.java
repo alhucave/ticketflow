@@ -17,7 +17,10 @@ import com.ticketflow.usecase.RequestPurchaseCommand;
 import java.time.Duration;
 import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
+import com.ticketflow.usecase.RequestPurchaseUseCase;
 import org.junit.jupiter.api.Test;
+import org.springframework.boot.convert.ApplicationConversionService;
+import org.springframework.boot.test.context.runner.ApplicationContextRunner;
 
 class UseCaseConfigTest {
 
@@ -58,5 +61,59 @@ class UseCaseConfigTest {
         StepVerifier.create(useCase.execute(new RequestPurchaseCommand(
                         new EventId("e"), new Quantity(1), new IdempotencyKey("k"))))
                 .expectNextCount(1).verifyComplete();
+    }
+
+    private ApplicationContextRunner runner() {
+        return new ApplicationContextRunner()
+                .withUserConfiguration(UseCaseConfig.class)
+                .withInitializer(context -> context.getBeanFactory()
+                        .setConversionService(ApplicationConversionService.getSharedInstance()))
+                .withBean(EventRepository.class, () -> mock(EventRepository.class))
+                .withBean(InventoryRepository.class, () -> mock(InventoryRepository.class))
+                .withBean(OrderRepository.class, () -> mock(OrderRepository.class))
+                .withBean(OrderPlacementRepository.class, () -> mock(OrderPlacementRepository.class))
+                .withBean(OrderFulfillmentRepository.class, () -> mock(OrderFulfillmentRepository.class))
+                .withBean(OrderQueuePublisher.class, () -> mock(OrderQueuePublisher.class))
+                .withBean(BusinessMetrics.class, () -> BusinessMetrics.NOOP);
+    }
+
+    @Test
+    void context_defaultAndMaximumTtl_start() {
+        runner().run(context -> assertThat(context).hasNotFailed().hasSingleBean(RequestPurchaseUseCase.class));
+        runner().withPropertyValues("ticketflow.reservation.ttl=PT10M")
+                .run(context -> assertThat(context).hasNotFailed().hasSingleBean(RequestPurchaseUseCase.class));
+        runner().withPropertyValues("ticketflow.reservation.ttl=PT1S")
+                .run(context -> assertThat(context).hasNotFailed().hasSingleBean(RequestPurchaseUseCase.class));
+    }
+
+    @Test
+    void context_ttlAboveMaximum_refusesToStartWithClearMessage() {
+        for (String tooLong : new String[] {"PT10M1S", "PT2H"}) {
+            runner().withPropertyValues("ticketflow.reservation.ttl=" + tooLong).run(context -> {
+                assertThat(context).hasFailed();
+                assertThat(rootMessages(context.getStartupFailure()))
+                        .contains("ticketflow.reservation.ttl")
+                        .contains(tooLong)
+                        .contains("PT10M");
+            });
+        }
+    }
+
+    @Test
+    void context_nonPositiveTtl_refusesToStart() {
+        for (String bad : new String[] {"PT0S", "-PT1S"}) {
+            runner().withPropertyValues("ticketflow.reservation.ttl=" + bad).run(context -> {
+                assertThat(context).hasFailed();
+                assertThat(rootMessages(context.getStartupFailure())).contains("ticketflow.reservation.ttl");
+            });
+        }
+    }
+
+    private static String rootMessages(Throwable failure) {
+        var all = new StringBuilder();
+        for (Throwable t = failure; t != null; t = t.getCause()) {
+            all.append(t.getMessage()).append(" | ");
+        }
+        return all.toString();
     }
 }
