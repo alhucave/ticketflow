@@ -652,7 +652,7 @@
     "id": "F-030",
     "name": "enforce-reservation-ttl-cap",
     "phase": 10,
-    "status": "in_progress",
+    "status": "done",
     "depends_on": [
       "F-029"
     ],
