@@ -624,5 +624,28 @@
       "Stability evidence by execution: full integration suite green several times in a row and once under CPU load; the 5 s failure mode reproduced deterministically with a negative control (the original 30 s hang was not reproduced)",
       "Registered as DP-035 in docs/decisions.md and linked from feature_list.json (origin own); the unexplained hang is followed up in F-033"
     ]
+  },
+  {
+    "id": "F-029",
+    "name": "pin-ci-runner-image",
+    "phase": 10,
+    "status": "in_progress",
+    "depends_on": [
+      "F-028"
+    ],
+    "issue": 59,
+    "origin": "own",
+    "decisions": [
+      "DP-036"
+    ],
+    "title": "Pin the CI runner image (ubuntu-24.04)",
+    "description": "GitHub announced that the ubuntu-latest label migrates to Ubuntu 26 on 2026-10-19 (https://github.com/actions/runner-images/issues/14748). ci.yml, security.yml and release.yml use ubuntu-latest, so the OS would change under us without any commit. Pin every runs-on to the explicit image that ubuntu-latest resolves to today, document how to move deliberately, and add an init.sh guard that rejects floating runner labels.",
+    "acceptance": [
+      "All workflows use an explicit image (ubuntu-24.04), verified to be what ubuntu-latest resolves to today (check the run logs' 'Runner Image' section) so behaviour does not change now",
+      "Workflows validated (actionlint via Docker) and the verify + Security checks green on the PR",
+      "Documented how and when to move to the next image deliberately (a dated note in docs/verification.md or the README CI/CD section; Dependabot does not bump runner labels)",
+      "Registered as a decision in docs/decisions.md (DP-036) and linked from feature_list.json (origin own)",
+      "init.sh fails when a workflow uses a floating runner label (-latest), proven with negative controls"
+    ]
   }
 ]

@@ -20,7 +20,7 @@ Java 25 · Spring Boot 4.x · Spring WebFlux · Gradle (Kotlin DSL) · DynamoDB 
 | `docs/decisions.md` | Registro `DP-NNN` de lo que decidimos nosotros y el enunciado no exige (interpretación o extra propio) |
 | `CHECKPOINTS.md` | Checklist que aplica el reviewer |
 | `requests/` | Colección de Postman + entorno, `run-newman.sh` (Newman en Docker) y `demo.sh` (curl) |
-| `init.sh` | Verificación única: la usan implementer, reviewer y CI. Incluye la validación del registro (`./init.sh --check-registry` la ejecuta sola) |
+| `init.sh` | Verificación única: la usan implementer, reviewer y CI. Incluye la validación del registro (`./init.sh --check-registry` la ejecuta sola) y la de runners de CI fijados (`--check-runners`) |
 | `.github/pull_request_template.md` | Plantilla de PR con el checklist (incluye el registro de decisiones) |
 
 ## Flujo de trabajo

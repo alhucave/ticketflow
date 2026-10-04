@@ -6,6 +6,7 @@ Una feature está verificada cuando `./init.sh` termina en verde y cada criterio
 
 1. Valida que `feature_list.json` sea JSON válido y que haya como máximo una feature `in_progress`.
    - Valida el registro de trazabilidad (F-027): cada feature tiene `origin` válido (`spec`, `interpretation`, `own`); las no-`spec` listan `decisions`; todo `DP-NNN` referenciado existe en [`decisions.md`](decisions.md); no hay `DP` vigentes sin feature, ni ids duplicados o mal formados; cada fila de la matriz de [`requirements.md`](requirements.md) tiene un estado válido (y `Cumplido con interpretación` enlaza un `DP`) y el resumen de cobertura coincide con el conteo. `./init.sh --check-registry` ejecuta solo esta validación y sale (tarda unas décimas de segundo).
+   - Valida que los runners de CI estén fijados (F-029, [`DP-036`](decisions.md#dp-036-los-runners-de-ci-usan-una-imagen-fijada-no-ubuntu-latest)): falla si algún `.github/workflows/*.yml` usa una etiqueta flotante en `runs-on` (cualquier `*-latest`), o una expresión `${{ ... }}` que no se pueda comprobar. `./init.sh --check-runners` ejecuta solo las validaciones rápidas hasta esa y sale.
 2. Si existe `./gradlew`: ejecuta `./gradlew clean build jacocoTestReport jacocoTestCoverageVerification`.
    - Falla si la cobertura de líneas global baja del **90%**.
 3. Si aún no existe `./gradlew` (antes de la feature F-001), solo corre el paso 1 e informa `BOOTSTRAP`.
@@ -15,6 +16,16 @@ El validador solo comprueba coherencia mecánica: no puede juzgar si el `origin`
 ## Verificación de la cadena de suministro
 
 No forma parte de `./init.sh` (necesita Docker y red), pero es obligatoria en CI: `.github/workflows/security.yml` (Trivy sobre `gradle.lockfile` y sobre la imagen, gitleaks sobre el historial). `./init.sh` sí compila con el bloqueo de dependencias: tras cambiar una versión, `./gradlew dependencies --write-locks`. Comandos para ejecutar los escaneos en local: `docs/security.md`.
+
+## Imagen del runner de CI fijada (nota del 2026-10-04)
+
+Los tres workflows usan `runs-on: ubuntu-24.04`, no `ubuntu-latest` ([`DP-036`](decisions.md#dp-036-los-runners-de-ci-usan-una-imagen-fijada-no-ubuntu-latest)).
+
+- **Por qué:** GitHub migrará la etiqueta `ubuntu-latest` a Ubuntu 26.04 de forma gradual, a partir del **2026-10-19** y hasta el **2026-11-19** ([runner-images#14748](https://github.com/actions/runner-images/issues/14748), comprobado el 2026-10-04). El 2026-10-04 `ubuntu-latest` aún resolvía a `ubuntu-24.04` (sección «Runner Image» de los logs de CI), por lo que fijarla no cambia nada hoy y evita que el sistema operativo cambie sin un commit.
+- **Cómo mover a la siguiente imagen a propósito** (p. ej. `ubuntu-26.04`): (1) cambiar la etiqueta en los **tres** workflows en **un único PR**; (2) dejar correr el CI y comparar «Set up job > Runner Image» (`Image:` y `Version:`) con un run anterior; (3) vigilar los pasos sensibles al sistema: Docker y Testcontainers (`INCLUDE_INTEGRATION=true`), Java 25 de `setup-java`, la imagen y el escaneo de Trivy y gitleaks; (4) actualizar esta nota y `DP-036`. `init.sh` acepta cualquier etiqueta explícita; solo rechaza las flotantes.
+- **Dependabot no ayuda aquí:** no actualiza las etiquetas de `runs-on` (sí las acciones y la imagen base del `Dockerfile`), así que el cambio es manual.
+- **Fecha de revisión:** GitHub mantiene como máximo dos imágenes GA y empieza a deprecar la más antigua cuando sale una nueva ([política de soporte](https://github.com/actions/runner-images#support-policy)). Con Ubuntu 26.04 ya GA, revise esta fijación cuando termine la migración de `ubuntu-latest` (2026-11-19) y después al menos cada seis meses o cuando el README de runner-images marque `ubuntu-24.04` como deprecada; entonces hay que subirla antes de que el CI falle.
+- **Lo que solo prueba el CI real del PR:** que `verify` y los tres jobs de Seguridad pasan en una imagen `ubuntu-24.04` recién solicitada. En local se comprueba la sintaxis (actionlint 1.7.12 en Docker, `rhysd/actionlint:1.7.12`: `docker run --rm -v "$PWD":/repo -w /repo rhysd/actionlint:1.7.12`) y el guarda de `init.sh`, no la ejecución.
 
 ## Niveles de prueba
 
