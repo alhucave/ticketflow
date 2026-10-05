@@ -1,5 +1,4 @@
 # Estado actual
 
-F-030 aprobada (pendiente de PR/merge).
-Feature en curso: F-031 — enable-runtime-components-by-default (implementada, init.sh verde x3 con integracion; pendiente de reviewer). Informe: progress/impl_enable-runtime-components-by-default.md
-Siguientes del plan: F-032 (primer release ghcr), F-033 (diagnostico del cuelgue, issue #63).
+F-031 aprobada (pendiente de PR/merge).
+Siguientes del plan: F-032 (primer release ghcr), F-033 (diagnostico del cuelgue de 30 s, issue #63), F-034 (carrera de arranque: 500 en vez de 503 antes de crear las tablas, issue #67).

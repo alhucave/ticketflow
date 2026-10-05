@@ -671,7 +671,7 @@
     "id": "F-031",
     "name": "enable-runtime-components-by-default",
     "phase": 10,
-    "status": "in_progress",
+    "status": "done",
     "depends_on": [
       "F-030"
     ],
