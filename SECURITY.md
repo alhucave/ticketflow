@@ -10,7 +10,7 @@
 
 Se confirmará la recepción y se informará del avance en ese mismo hilo privado. No incluya credenciales reales en el reporte.
 
-> **Mientras el repositorio sea privado** solo lo ven los colaboradores invitados: comunique cualquier hallazgo directamente a la persona propietaria. El reporte privado de GitHub descrito arriba es el canal previsto cuando el repositorio sea público.
+> El repositorio es público (desde 2026-10-05) y el reporte privado de vulnerabilidades está **activado** (comprobado con la API de GitHub el 2026-10-05): el flujo de arriba funciona. Si el botón **Report a vulnerability** no apareciera, no use un issue: contacte con la persona propietaria a través de su perfil de GitHub.
 
 ## Alcance
 
