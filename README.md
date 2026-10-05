@@ -130,7 +130,7 @@ docker-compose down -v      # detiene y elimina contenedores y volúmenes
 docker build -t ticketflow:local .
 ```
 
-La imagen expone `8080` (API) y `8081` (gestión) y necesita las variables de [configuración](#referencia-de-configuración) para encontrar DynamoDB y SQS; sin ellas usa los endpoints reales de AWS. Al empujar un tag `v*` el CI publica `ghcr.io/alhucave/ticketflow` (ver [CI/CD](#cicd)).
+La imagen expone `8080` (API) y `8081` (gestión) y necesita las variables de [configuración](#referencia-de-configuración) para encontrar DynamoDB y SQS; sin ellas usa los endpoints reales de AWS. Al empujar un tag `vX.Y.Z` el CI publica `ghcr.io/alhucave/ticketflow` (ver [Usar la imagen publicada](#usar-la-imagen-publicada) y [CI/CD](#cicd)). Con `--build-arg APP_VERSION=0.1.0` la aplicación informa esa versión (por defecto `0.0.1-SNAPSHOT`).
 
 ### Compilar y probar (JDK 25)
 
@@ -480,13 +480,57 @@ Modelo de amenazas, escaneos, endurecimiento de contenedores y limitaciones cono
 |----------|--------|----------|
 | `.github/workflows/ci.yml` (job `verify`) | `pull_request` y push a `main` | Java 25 (Temurin) con `INCLUDE_INTEGRATION=true ./init.sh` (build, tests con Testcontainers y barrera del 90 %); sube `build/reports/jacoco`, `build/reports/tests`, `build/reports/hang-dumps` y `build/test-results` como artefacto `reports` |
 | `.github/workflows/security.yml` | `pull_request`, push a `main` y semanal (lunes 05:17 UTC) | `dependencies`: Trivy sobre `gradle.lockfile`; `secrets`: gitleaks sobre todo el historial y el árbol; `image`: construye la imagen y la escanea con Trivy. Falla con HIGH/CRITICAL con corrección disponible. Independiente de `verify` |
-| `.github/workflows/release.yml` | push de un tag `v*` | Construye la imagen y la publica en `ghcr.io/alhucave/ticketflow` (tags semver `x.y.z`, `x.y` y `latest`) con `GITHUB_TOKEN` (`packages: write` solo en ese job) |
+| `.github/workflows/release.yml` | push de un tag `vX.Y.Z` (o `vX.Y.Z-rc.1`) | `gate`: el commit etiquetado debe estar en `main` y tener un check `verify` en verde; `publish`: construye la imagen con la versión del tag y la publica en `ghcr.io/alhucave/ticketflow` (tags `x.y.z`, `x.y` y `latest`; un prelanzamiento solo su propia tag) con `GITHUB_TOKEN` (`packages: write` solo en ese job); `smoke`: descarga la imagen **por digest**, la arranca sin infraestructura y exige liveness 200 y la versión del tag. [`DP-040`](docs/decisions.md#dp-040-primer-release-en-ghcrio-versionado-semver-0x-puerta-de-ci-prueba-de-humo-y-solo-linuxamd64) |
 
-- Los workflows usan permisos mínimos (`contents: read`) y acciones fijadas por SHA de commit.
+- Los workflows usan permisos mínimos (en `release.yml` se declaran por job: `checks: read`, `packages: write` solo al publicar, `packages: read` en la prueba de humo) y acciones fijadas por SHA de commit.
 - **Protección de la rama `main`**: se configuró con el check `verify` obligatorio, la rama al día antes de fusionar y sin force-push ni borrado, cuando el repositorio era público. **Desde que el repositorio es privado en un plan GitHub Free esa protección ya no se puede aplicar** (GitHub exige el plan Pro/Team o un repositorio público): `verify` y los escaneos se siguen ejecutando en cada PR, pero **no bloquean la fusión**. «Todo cambio por PR (`Closes #<issue>`) con CI en verde» es hoy una **convención**, no una regla impuesta. Para recuperarla: plan Pro/Team o volver a hacer público el repositorio, y reactivar la regla (check `verify` obligatorio, rama al día, sin force-push ni borrado).
 - **Runner fijado** (nota del 2026-10-04): los workflows usan `runs-on: ubuntu-24.04`, no `ubuntu-latest`, porque esa etiqueta migra a Ubuntu 26.04 a partir del 2026-10-19. `./init.sh` falla si reaparece una etiqueta `*-latest`. Cómo y cuándo mover de imagen (Dependabot no lo hace): [`docs/verification.md`](docs/verification.md#imagen-del-runner-de-ci-fijada-nota-del-2026-10-04) y [`DP-036`](docs/decisions.md#dp-036-los-runners-de-ci-usan-una-imagen-fijada-no-ubuntu-latest).
 - **Dependabot** (`.github/dependabot.yml`): actualizaciones semanales agrupadas de Gradle (con su lockfile), GitHub Actions e imagen base del `Dockerfile` (fijada también por digest); cada PR pasa `verify` y los escaneos.
 - Detalle de los escaneos y cómo ejecutarlos en local: [`docs/security.md`](docs/security.md#cadena-de-suministro).
+
+### Usar la imagen publicada
+
+La imagen es `ghcr.io/alhucave/ticketflow` (solo `linux/amd64`; en Apple Silicon corre bajo emulación). El paquete es **privado mientras el repositorio sea privado**: para descargarlo hay que iniciar sesión con un token con permiso `read:packages`. Cambiar la visibilidad del paquete (Package settings en GitHub) es una decisión del dueño del repositorio; no se hace desde el CI.
+
+```bash
+# 1) Permiso read:packages en el token de la CLI de GitHub (una vez; abre el navegador)
+gh auth refresh -s read:packages
+# 2) Login en ghcr.io con ese token
+gh auth token | docker login ghcr.io -u <su-usuario-de-github> --password-stdin
+#    (alternativa: un PAT "classic" con read:packages en la variable CR_PAT)
+#    echo "$CR_PAT" | docker login ghcr.io -u <su-usuario-de-github> --password-stdin
+
+# 3) Descargar y arrancar con docker-compose (la pila completa, sin construir la imagen)
+export TICKETFLOW_IMAGE=ghcr.io/alhucave/ticketflow:0.1.0
+docker-compose pull app
+docker-compose up -d --wait --no-build
+curl -s http://localhost:8081/actuator/health/readiness      # {"status":"UP"} cuando DynamoDB y SQS responden
+docker-compose down -v
+```
+
+Tags de imagen: `X.Y.Z` (inmutable por convención, la recomendada), `X.Y` (último parche de esa serie) y `latest` (último release estable). Para fijar el artefacto exacto use el digest (`ghcr.io/alhucave/ticketflow@sha256:...`, aparece en el resumen del run de «Release»). Sin `docker-compose`, la imagen suelta necesita las variables de [configuración](#referencia-de-configuración).
+
+### Publicar un release
+
+Esquema de versiones: semver `0.x` (entregable de prueba técnica, sin garantía de compatibilidad entre `0.MINOR`), tags git anotados `vX.Y.Z`; el primero es **`v0.1.0`**. Detalle y razones: [`DP-040`](docs/decisions.md#dp-040-primer-release-en-ghcrio-versionado-semver-0x-puerta-de-ci-prueba-de-humo-y-solo-linuxamd64). La versión del código fuente sigue siendo `0.0.1-SNAPSHOT`: la del tag solo se hornea en la imagen (`service.version` de los logs).
+
+```bash
+# 0) main al día y con el CI de su último commit en verde (el gate lo exige; si aún corre, espera hasta 20 min)
+git checkout main && git pull --ff-only
+gh run list --workflow ci.yml --branch main --limit 1        # STATUS completed / success para HEAD
+# 1) Crear y subir el tag (esto dispara .github/workflows/release.yml)
+git tag -a v0.1.0 -m "ticketflow 0.1.0" && git push origin v0.1.0
+# 2) Seguir el run: gate -> publish -> smoke
+gh run watch "$(gh run list --workflow release.yml --limit 1 --json databaseId --jq '.[0].databaseId')" --exit-status
+# 3) Solo con el run en verde: crear la página de release de GitHub sobre ese tag
+gh release create v0.1.0 --verify-tag --title "v0.1.0" --generate-notes
+```
+
+Lista de comprobación tras el run: `gate` y `smoke` en verde; en el resumen de `publish`, el digest y las tags `0.1.0`, `0.1` y `latest`; `docker login` + `docker-compose pull app` con `TICKETFLOW_IMAGE=ghcr.io/alhucave/ticketflow:0.1.0` y `docker-compose up -d --wait --no-build`, una compra hasta `SOLD` (`./requests/demo.sh`) y `service.version` = `0.1.0` en `docker-compose logs app`; el paquete aparece enlazado al repositorio (etiqueta `org.opencontainers.image.source`) y sigue **privado**.
+
+**Si el run falla ANTES de publicar** (no se ha subido nada al registro; el tag se puede reutilizar): (a) `gate` falla con *no 'verify' check run exists*: el tag se subió antes de que arrancara el CI de `main` (la puerta solo espera a un `verify` ya encolado o en curso). Esperar a que el CI de `main` termine en verde y relanzar el run: `gh run rerun <id>`; no hace falta borrar el tag. (b) `gate` falla con *not on main* o *failure*: el commit etiquetado no es de `main` o su `verify` no está en verde; borrar el tag (ver abajo), etiquetar el commit correcto. (c) `publish` falla al subir con `403`/`denied` (GitHub rechaza crear el paquete con el `GITHUB_TOKEN`): `gate` ya pasó pero el registro no recibió nada. Causas habituales: la política de permisos de Actions de la cuenta o un paquete `ticketflow` previo que no está enlazado a este repositorio. Corregir la causa (Settings → Actions → General → Workflow permissions, o enlazar/dar acceso al paquete en la página del paquete → *Package settings*), borrar y volver a subir el tag, o relanzar el run con `gh run rerun <id> --failed`. Si falla `smoke` **después** de `publish`, la imagen SÍ está publicada pero sin verificar: tratarlo como un release malo (siguiente párrafo).
+
+**Deshacer un release malo.** (1) Borrar el tag: `git push origin :refs/tags/v0.1.0 && git tag -d v0.1.0`, y la página de release si se creó: `gh release delete v0.1.0 --cleanup-tag --yes`. (2) **La imagen no se borra sola:** las tags `0.1.0`, `0.1` y `latest` siguen en `ghcr.io` apuntando al digest malo. Para retirarlas hay que borrar la versión del paquete, que exige permiso de borrado: `gh auth refresh -s delete:packages`, listar con `gh api /user/packages/container/ticketflow/versions --jq '.[] | [.id, .metadata.container.tags] | @tsv'` y borrar con `gh api -X DELETE /user/packages/container/ticketflow/versions/<id>` (o desde la página del paquete). (3) No reutilice el número: corrija y publique `v0.1.1`; esa publicación mueve `0.1` y `latest` al digest bueno. Volver a empujar el mismo tag `v0.1.0` sobrescribiría la tag de imagen `0.1.0` con otro digest: no lo haga. Un run con `gate` en rojo no publica nada (no hay nada que deshacer en el registro); si falla `smoke`, la imagen ya está publicada: trátelo como release malo.
 
 ## Despliegue en AWS (diseño)
 

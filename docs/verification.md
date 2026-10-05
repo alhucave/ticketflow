@@ -17,6 +17,10 @@ El validador solo comprueba coherencia mecánica: no puede juzgar si el `origin`
 
 No forma parte de `./init.sh` (necesita Docker y red), pero es obligatoria en CI: `.github/workflows/security.yml` (Trivy sobre `gradle.lockfile` y sobre la imagen, gitleaks sobre el historial). `./init.sh` sí compila con el bloqueo de dependencias: tras cambiar una versión, `./gradlew dependencies --write-locks`. Comandos para ejecutar los escaneos en local: `docs/security.md`.
 
+## Verificación del release (F-032, DP-040)
+
+`./init.sh` ejecuta [`scripts/test-release-scripts.sh`](../scripts/test-release-scripts.sh): prueba sin red ni token (un `gh` simulado) de las dos puertas de `release.yml` (`require-commit-on-main.sh`, `require-green-verify.sh`). No forma parte de `./init.sh` (necesita Docker o red): `scripts/smoke-image.sh <imagen> [versión] [plazo]` (arranca la imagen sin infraestructura y exige liveness 200 y la versión), `docker run --rm -v "$PWD":/repo -w /repo rhysd/actionlint:1.7.12` (los workflows) y `docker buildx`/`docker build --build-arg APP_VERSION=0.1.0 .`. Lo que solo prueba el run real de un tag: el push a ghcr.io con `GITHUB_TOKEN` desde un repositorio privado, el `digest` de la acción, las tags publicadas y el job `smoke` en el runner (lista de comprobación en el README, «Publicar un release»).
+
 ## Imagen del runner de CI fijada (nota del 2026-10-04)
 
 Los tres workflows usan `runs-on: ubuntu-24.04`, no `ubuntu-latest` ([`DP-036`](decisions.md#dp-036-los-runners-de-ci-usan-una-imagen-fijada-no-ubuntu-latest)).

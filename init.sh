@@ -235,6 +235,10 @@ if [ "${1:-}" = "--check-runners" ]; then
   exit 0
 fi
 
+# Release gate scripts (F-032, DP-040): offline test with a fake `gh` (about 3 s).
+echo "==> Testing the release gate scripts"
+scripts/test-release-scripts.sh
+
 if [ ! -x ./gradlew ]; then
   echo "BOOTSTRAP: no ./gradlew yet (feature F-001 pending). Skipping build."
   exit 0

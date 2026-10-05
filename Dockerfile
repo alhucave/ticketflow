@@ -1,14 +1,19 @@
 # syntax=docker/dockerfile:1
 # Base images are pinned by multi-arch index digest (tag kept for readability). Dependabot (docker ecosystem)
 # proposes updates for both. To refresh by hand: docker pull <image:tag> && docker image inspect <image:tag> --format '{{index .RepoDigests 0}}'
+# Version reported by the app (service.version of the logs, jar name). Plain builds keep the development version;
+# release.yml passes the tag version (--build-arg APP_VERSION=0.1.0). See DP-040.
+ARG APP_VERSION=0.0.1-SNAPSHOT
+
 FROM eclipse-temurin:25-jdk@sha256:8c0a84ea11c8f6ed52600fc19f1040121f2a162998e9f50a5faebbbad9172dcc AS build
+ARG APP_VERSION
 WORKDIR /workspace
 COPY gradlew settings.gradle.kts build.gradle.kts gradle.lockfile ./
 COPY gradle gradle
 RUN ./gradlew --no-daemon --version
 COPY src src
 COPY docker/healthcheck docker/healthcheck
-RUN ./gradlew --no-daemon bootJar -x test \
+RUN ./gradlew --no-daemon -PappVersion="$APP_VERSION" bootJar -x test \
     && cp "$(ls build/libs/*.jar | grep -v -- -plain.jar)" app.jar \
     && mkdir healthcheck && javac -d healthcheck docker/healthcheck/Healthcheck.java
 
