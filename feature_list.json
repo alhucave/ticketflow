@@ -696,7 +696,7 @@
     "id": "F-034",
     "name": "fix-startup-race-missing-tables",
     "phase": 10,
-    "status": "in_progress",
+    "status": "done",
     "depends_on": [
       "F-031"
     ],

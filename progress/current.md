@@ -1,9 +1,4 @@
 # Estado actual
 
-Feature en curso: F-034 — fix-startup-race-missing-tables (implementada, pendiente de review; ver progress/impl_fix-startup-race.md)
-
-Plan:
-- Test de regresion de ventana de arranque (DynamoDB Local propio sin tablas) que falla hoy con 500.
-- Clasificar ResourceNotFoundException como transitorio (503 + Retry-After) en TransientFailures y loguear la excepcion completa.
-- Experimento real con docker-compose up (sin --wait), antes y despues.
-- Docs: README, observability.md, DP-038.
+F-034 aprobada (pendiente de PR/merge).
+Siguientes del plan: F-033 (diagnostico del cuelgue de 30 s, issue #63), F-032 (primer release ghcr, issue #62; va al final).
