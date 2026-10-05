@@ -763,7 +763,7 @@
     "id": "F-035",
     "name": "repository-is-public",
     "phase": 10,
-    "status": "pending",
+    "status": "done",
     "depends_on": [
       "F-034"
     ],
