@@ -76,6 +76,8 @@ Todas con el prefijo `ticketflow.` (en Prometheus: puntos a `_`, contadores con 
 
 ### Expiración, límites y dependencias
 
+El consumer y el barrido de expiración arrancan **por defecto** ([DP-037](decisions.md#dp-037-el-consumidor-sqs-y-el-job-de-expiración-arrancan-por-defecto)); un proceso solo-API los desactiva con `ticketflow.sqs.consumer.enabled=false` y `ticketflow.expiration.enabled=false`, y entonces estas métricas y los gauges del consumer no se publican en él. Si DynamoDB o SQS están inaccesibles, la aplicación no cae: el consumer registra `ReceiveMessage failed (attempt N) ... retrying with backoff` (1 s a 30 s) y cada barrido fallido registra `Reservation expiration sweep failed; will retry at the next interval` (`ticketflow.expiration.sweeps{result="error"}`), mientras `readiness` está `DOWN` y `liveness` `UP`.
+
 | Métrica | Tipo | Etiquetas | Significado |
 |---------|------|-----------|-------------|
 | `ticketflow.expiration.sweep.orders` | counter | `result`: `released`, `skipped_conflict`, `failed` | Órdenes que tocó el barrido de expiración (`failed` = no se pudo liberar, se reintenta en el siguiente) |

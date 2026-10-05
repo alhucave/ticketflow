@@ -9,8 +9,8 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  * {@code TICKETFLOW_SQS_CONSUMER_*}).
  *
  * <ul>
- *   <li>{@code enabled}: the consumer only starts when {@code true} (default {@code false}, so
- *       contexts without SQS never poll);</li>
+ *   <li>{@code enabled}: the consumer starts unless set to {@code false} (default {@code true}, DP-037; an
+ *       API-only instance sets it explicitly to {@code false});</li>
  *   <li>{@code batchSize}: messages per {@code ReceiveMessage} (1..10);</li>
  *   <li>{@code waitTime}: long-polling wait (1..20 s);</li>
  *   <li>{@code visibilityTimeout}: how long a received message stays hidden; must exceed the time
@@ -23,7 +23,7 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  */
 @ConfigurationProperties(prefix = "ticketflow.sqs.consumer")
 public record SqsConsumerProperties(
-        @DefaultValue("false") boolean enabled,
+        @DefaultValue("true") boolean enabled,
         @DefaultValue("10") int batchSize,
         @DefaultValue("20s") Duration waitTime,
         @DefaultValue("30s") Duration visibilityTimeout,

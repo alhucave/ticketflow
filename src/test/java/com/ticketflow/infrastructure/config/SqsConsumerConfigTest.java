@@ -37,17 +37,24 @@ class SqsConsumerConfigTest {
     }
 
     @Test
-    void context_consumerNotEnabled_noConsumerBeanAndNoPolling() {
+    void context_propertyAbsent_consumerIsEnabledByDefaultAndPolls() {
+        var holder = new SqsOrderConsumer[1];
         runner().run(context -> {
-            assertThat(context).doesNotHaveBean(SqsOrderConsumer.class);
-            verify(client, never()).receiveMessage(any(ReceiveMessageRequest.class));
+            holder[0] = context.getBean(SqsOrderConsumer.class);
+            assertThat(holder[0].isRunning()).isTrue();
+            assertThat(context.getBean(SqsConsumerProperties.class).enabled()).isTrue();
+            verify(client).receiveMessage(any(ReceiveMessageRequest.class));
         });
+        assertThat(holder[0].isRunning()).isFalse();
     }
 
     @Test
-    void context_consumerDisabledExplicitly_noConsumerBean() {
+    void context_consumerDisabledExplicitly_noConsumerBeanAndNoPolling() {
         runner().withPropertyValues("ticketflow.sqs.consumer.enabled=false")
-                .run(context -> assertThat(context).doesNotHaveBean(SqsOrderConsumer.class));
+                .run(context -> {
+                    assertThat(context).doesNotHaveBean(SqsOrderConsumer.class);
+                    verify(client, never()).receiveMessage(any(ReceiveMessageRequest.class));
+                });
     }
 
     @Test

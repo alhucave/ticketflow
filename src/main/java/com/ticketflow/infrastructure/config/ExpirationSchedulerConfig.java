@@ -10,9 +10,12 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
-/** Wires the expiration scheduler; only active with {@code ticketflow.expiration.enabled=true}. */
+/**
+ * Wires the expiration scheduler; active by default (DP-037), off only with
+ * {@code ticketflow.expiration.enabled=false}.
+ */
 @Configuration(proxyBeanMethods = false)
-@ConditionalOnProperty(prefix = "ticketflow.expiration", name = "enabled", havingValue = "true")
+@ConditionalOnProperty(prefix = "ticketflow.expiration", name = "enabled", havingValue = "true", matchIfMissing = true)
 @EnableConfigurationProperties(ExpirationProperties.class)
 public class ExpirationSchedulerConfig {
 

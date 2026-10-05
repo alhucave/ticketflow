@@ -666,5 +666,30 @@
       "docs/requirements.md (RF-2) and the existing decision about the configurable TTL in docs/decisions.md updated; README configuration table says the maximum.",
       "No behaviour change for the default configuration."
     ]
+  },
+  {
+    "id": "F-031",
+    "name": "enable-runtime-components-by-default",
+    "phase": 10,
+    "status": "done",
+    "depends_on": [
+      "F-030"
+    ],
+    "issue": 61,
+    "origin": "own",
+    "decisions": [
+      "DP-037",
+      "DP-006",
+      "DP-012"
+    ],
+    "title": "Run the full pipeline by default (consumer and expiry job enabled)",
+    "description": "ticketflow.sqs.consumer.enabled and ticketflow.expiration.enabled default to false; only docker-compose turns them on. Anyone starting the app another way gets a system that accepts purchases but never processes them (orders stay RESERVED) and never releases expired reservations, which breaks the statement's asynchronous-processing and automatic-release requirements by default. Both flags now default to true; the API-only role stays possible with explicit false.",
+    "acceptance": [
+      "Both flags default to true (single source of truth: @ConfigurationProperties defaults + application.yml + README table, and the @ConditionalOnProperty guards use matchIfMissing). The API-only role stays possible with explicit false (documented for the api/worker split in docs/aws.md); proven by tests that start a context WITHOUT the property (components present) and with =false (absent).",
+      "The existing test contexts keep passing WITHOUT weakening any assertion: ONE shared test-resources mechanism (src/test/resources/application.properties, not an application.yml that would shadow the main one) sets false for the suite; tests that need the components set true explicitly.",
+      "Startup with the components enabled but SQS/DynamoDB unreachable still behaves gracefully (retry with backoff, readiness DOWN, no crash loop): proven by a test.",
+      "End-to-end proof: run the packaged app WITHOUT any enabling variable and show purchase -> SOLD and a reservation expiring; API-only role with explicit false leaves the order RESERVED; app with unreachable infrastructure stays up with readiness DOWN.",
+      "docs/requirements.md, docs/decisions.md (new DP-037 + DP-006 and DP-012 updated), README, docs/aws.md, docs/observability.md, docs/architecture.md and docker-compose comments updated; full INCLUDE_INTEGRATION=true ./init.sh green and stable (at least 3 times in a row)."
+    ]
   }
 ]

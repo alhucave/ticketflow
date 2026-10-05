@@ -198,7 +198,7 @@ Spring Boot acepta cada propiedad como variable de entorno en mayúsculas con `_
 
 | Propiedad | Por defecto | Significado |
 |-----------|-------------|-------------|
-| `enabled` | `false` (compose: `true`) | Arranca el consumidor (los contextos sin SQS no hacen polling) |
+| `enabled` | `true` ([DP-037](docs/decisions.md#dp-037-el-consumidor-sqs-y-el-job-de-expiración-arrancan-por-defecto)) | Arranca el consumidor. `false` explícito para un proceso solo-API (rol `api`, [`docs/aws.md`](docs/aws.md)) |
 | `batch-size` | `10` | Mensajes por `ReceiveMessage` (1 a 10) |
 | `wait-time` | `20s` | Espera del long polling (1 a 20 s) |
 | `visibility-timeout` | `30s` | Tiempo que un mensaje recibido queda invisible; debe superar lo que tarda un lote |
@@ -210,7 +210,7 @@ Spring Boot acepta cada propiedad como variable de entorno en mayúsculas con `_
 
 | Propiedad | Por defecto | Significado |
 |-----------|-------------|-------------|
-| `enabled` | `false` (compose: `true`) | Arranca el job |
+| `enabled` | `true` ([DP-037](docs/decisions.md#dp-037-el-consumidor-sqs-y-el-job-de-expiración-arrancan-por-defecto)) | Arranca el job. `false` explícito para un proceso solo-API |
 | `interval` | `PT1M` | Pausa entre el fin de un barrido y el inicio del siguiente |
 | `initial-delay` | `PT10S` | Espera antes del primer barrido |
 | `concurrency` | `4` | Órdenes liberadas en paralelo en un barrido |

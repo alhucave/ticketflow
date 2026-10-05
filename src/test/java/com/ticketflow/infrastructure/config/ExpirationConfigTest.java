@@ -35,16 +35,25 @@ class ExpirationConfigTest {
     }
 
     @Test
-    void properties_defaults_schedulerDisabledAndOneMinuteInterval() {
-        var defaults = new ExpirationProperties(false, Duration.parse("PT1M"), Duration.ofSeconds(10), 4, 500,
+    void properties_defaults_schedulerEnabledAndOneMinuteInterval() {
+        var defaults = new ExpirationProperties(true, Duration.parse("PT1M"), Duration.ofSeconds(10), 4, 500,
                 Duration.ofSeconds(20));
-        assertThat(defaults.enabled()).isFalse();
         runner().run(context -> {
             assertThat(context).hasSingleBean(ExpirationProperties.class);
-            var bound = context.getBean(ExpirationProperties.class);
-            assertThat(bound).isEqualTo(defaults);
+            assertThat(context.getBean(ExpirationProperties.class)).isEqualTo(defaults);
+            // Property absent: the guard (matchIfMissing) and the record default agree, the scheduler exists.
+            assertThat(context).hasSingleBean(ReservationExpirationScheduler.class);
+            assertThat(context.getBean(ReservationExpirationScheduler.class).isRunning()).isTrue();
+            assertThat(context).hasSingleBean(ReleaseExpiredReservationsUseCase.class);
+        });
+    }
+
+    @Test
+    void context_disabledExplicitly_noSchedulerButUseCaseRemains() {
+        runner().withPropertyValues("ticketflow.expiration.enabled=false").run(context -> {
             assertThat(context).doesNotHaveBean(ReservationExpirationScheduler.class);
             assertThat(context).hasSingleBean(ReleaseExpiredReservationsUseCase.class);
+            assertThat(context.getBean(ExpirationProperties.class).enabled()).isFalse();
         });
     }
 

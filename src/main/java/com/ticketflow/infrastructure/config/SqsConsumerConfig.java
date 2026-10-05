@@ -13,9 +13,12 @@ import org.springframework.context.annotation.Configuration;
 import reactor.core.publisher.Mono;
 import software.amazon.awssdk.services.sqs.SqsAsyncClient;
 
-/** Wires the order consumer; only active with {@code ticketflow.sqs.consumer.enabled=true}. */
+/**
+ * Wires the order consumer; active by default (DP-037), off only with
+ * {@code ticketflow.sqs.consumer.enabled=false}.
+ */
 @Configuration(proxyBeanMethods = false)
-@ConditionalOnProperty(prefix = "ticketflow.sqs.consumer", name = "enabled", havingValue = "true")
+@ConditionalOnProperty(prefix = "ticketflow.sqs.consumer", name = "enabled", havingValue = "true", matchIfMissing = true)
 @EnableConfigurationProperties({SqsProperties.class, SqsConsumerProperties.class})
 public class SqsConsumerConfig {
 
