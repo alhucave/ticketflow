@@ -52,6 +52,18 @@ Ningún plazo se escribe en la prueba: todos salen de `com.ticketflow.testsuppor
 - **Cuerpos de respuesta**: si una prueba solo mira cabeceras o estado de una respuesta con cuerpo, léelo hasta el final (como `headersOf` en `HardeningEndToEndIT`) para devolver la conexión al pool.
 - `TimeoutPolicyGuardTest` falla si se incumple alguna de estas reglas.
 
+## Diagnóstico de cuelgues: volcados de hilos y sondeo de protocolo (F-033, DP-039)
+
+**Volcado automático.** Toda prueba `@Tag("integration")` que siga corriendo a los 20 s (o falle con un timeout) deja `build/reports/hang-dumps/<id de la prueba>.txt` (en CI, dentro del artefacto `reports`) y escribe `[hang-dump] ...` en la salida de error. Cómo leerlo:
+
+1. **Un archivo no es un cuelgue**: las pruebas lentas pero sanas (p. ej. las que reinician el consumidor, ~31 s) también lo dejan. La cabecera de cada sección dice el motivo: `still running after 20 s` (se escribió MIENTRAS la prueba estaba detenida: es la evidencia valiosa) o `failed with a timeout` (después del fallo).
+2. **Hilos** (`--- Threads (full stacks) ---`): busque el hilo de la prueba (`Test worker`) y la línea de su pila en `Mono.block`/`DefaultWebTestClient...exchange`: dice qué petición espera. Luego los hilos `reactor-http-nio-*` (cliente) y `webflux-http-nio-*` (servidor de la aplicación): todos en `epollWait`/`kevent`/`select` y sin trabajo = nadie está procesando nada (el servidor no vio la petición o la dio por contestada); uno bloqueado en un monitor o en `Thread.sleep` = un manejador bloqueó el bucle de eventos. `waiting on ... held by` identifica el dueño de un lock.
+3. **Interbloqueos** (`--- Deadlocks ---`): la JVM los detecta sola.
+4. **Sockets** (`--- TCP sockets ---`): busque el puerto del servidor de la prueba (`Started ...` en el log, o `LocalServerPort`). `Recv-Q` > 0 en el socket del servidor = bytes recibidos que nadie leyó (la petición llegó y no se procesó); `Send-Q` > 0 en el servidor = respuesta escrita que el cliente no leyó; una conexión en `CLOSE_WAIT`/`FIN_WAIT2` = un extremo cerró y el otro la sigue usando (reutilización de una conexión muerta); nada entre cliente y servidor = el cliente no llegó a conectar (agotamiento del pool o del puerto).
+5. Ajustes: `HANG_DUMP_THRESHOLD_SECONDS`, `HANG_DUMP_DIR`. La extensión está en `src/test/java/com/ticketflow/testsupport/` y se autodetecta (`META-INF/services` + `junit-platform.properties`).
+
+**Sondeo de protocolo (rechazos tempranos).** `EarlyRejection*Test` (sin Docker) envían por un socket crudo un rechazo temprano con cuerpo sin leer (401, 405, 413, 415, 429, cuerpo tardío, `chunked`) y a continuación una petición trivial en la MISMA conexión; fallan si la segunda no se contesta en 5 s, si llega con otro estado o con el `X-Correlation-Id` de otra petición, o si la conexión se cierra sin avisar. Por defecto 25 iteraciones por variante; el experimento grande: `EARLY_REJECTION_ITERATIONS=3000 ./gradlew cleanTest test --tests '*EarlyRejection*'` (la variable no es entrada de Gradle: sin `cleanTest` la tarea sale «UP-TO-DATE»). Para ver el tráfico en la librería: `LOGGING_LEVEL_REACTOR_NETTY_HTTP_SERVER=DEBUG` y buscar `Dropped HTTP content, since response has been sent already`. Para ejecutarlo bajo carga artificial, arranque los bucles de CPU guardando sus PID en un archivo y mátelos al terminar (`kill $(cat pids)` desde `bash`; en zsh una variable con varios PID no se divide).
+
 ## Cobertura
 
 - Mínimo 90% de líneas (JaCoCo). Se excluyen solo clases de arranque (`*Application`) y configuración trivial.

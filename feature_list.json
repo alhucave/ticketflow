@@ -713,5 +713,27 @@
       "Polling experiment against the real stack (docker-compose up WITHOUT --wait, POST /events from the first instant) repeated at least 10 times and once under CPU load: before the fix a 500 appears, after the fix only connection errors, then 503 (with Retry-After), then 201; never a 500.",
       "No existing mapping or test weakened; README error catalogue and startup behaviour, docs/observability.md (if semantics change) and docs/decisions.md (DP-038, Extra propio) updated; ./init.sh and INCLUDE_INTEGRATION=true ./init.sh green."
     ]
+  },
+  {
+    "id": "F-033",
+    "name": "diagnose-request-hang",
+    "phase": 10,
+    "status": "done",
+    "depends_on": [
+      "F-028"
+    ],
+    "issue": 63,
+    "origin": "own",
+    "decisions": [
+      "DP-039"
+    ],
+    "title": "Diagnose the unexplained 30 s request hang seen once in CI",
+    "description": "HardeningEndToEndIT.securityHeaders_arePresentOnSuccessAndOnEveryKindOfError failed once in CI (run 37128517785) with 'Timeout on blocking read for 30000000000 NANOSECONDS': the last, trivial request of the test (GET /actuator/health -> 404, after seven instant ones) got no response at all (0.27 s normally, 30.3 s). Not reproduced in ~85,000 requests nor several full-suite runs. Hypothesis to test (not proven): an early rejection (401/405/415/413/429) answered before consuming the request body, followed by reuse of the keep-alive connection, leaves the next request without an answer; if true it is a real server-side robustness issue, not just a test problem.",
+    "acceptance": [
+      "A TARGETED reproduction attempt of the hypothesis with exact control of the wire (raw sockets or a client with ONE pooled connection): thousands of iterations of 'POST with a body that is rejected early (401 admin key, 405, 415, 413, 429) followed immediately by a GET on the same connection', with and without CPU load, asserting every follow-up request is answered. It states clearly whether it reproduces.",
+      "If it reproduces: root cause confirmed with HTTP-level evidence (wire capture or Netty/reactor-netty logs) and a minimal server-side fix (drain/discard the unread request body, or answer with Connection: close), with a regression test that fails before and passes after, and no weakening of the early-rejection protections (rejection still happens before reading the body).",
+      "If it does NOT reproduce: cheap instrumentation so the next occurrence yields a root cause instead of a bare timeout (a JUnit extension that dumps all threads and the HTTP client/connection state when a test exceeds a threshold, uploaded as a CI artifact), and the open issue documented honestly.",
+      "Registered in docs/decisions.md (DP-039) and linked from feature_list.json; docs/verification.md explains how to read a hang dump or the new protocol test."
+    ]
   }
 ]

@@ -40,5 +40,6 @@ jobs:
           path: |
             build/reports/jacoco
             build/reports/tests
+            build/reports/hang-dumps
             build/test-results
           if-no-files-found: warn
