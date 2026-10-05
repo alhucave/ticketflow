@@ -67,3 +67,15 @@ BUILD SUCCESSFUL in 1m 27s
 11 actionable tasks: 11 executed
 ==> init.sh OK
 ```
+
+## Revisión 2
+
+Cambio pedido por el reviewer: retirar la afirmación sin sustento «se observaron ejecuciones más rápidas».
+
+- Reemplazada en README.md (CI en repositorio público), docs/security.md (sección «Qué implica un repositorio público para el CI»), docs/decisions.md DP-029 (Impacto y riesgo) y DP-041 (Impacto y riesgo).
+- Texto nuevo: runners gratuitos y sin cupo según la documentación de GitHub; efecto en la duración no medido; ejecuciones del 2026-10-05 de 8-11 min, similares a los 7-9 min de DP-029.
+- Grep de «más rápid», «faster», «observaron ejec» sin resultados. Los demás «rápido» son legítimos (inicio rápido, validaciones rápidas, acceso rápido).
+- Comprobador de enlaces/anclas y `./init.sh`: ver abajo.
+- Comprobador de enlaces y anclas sobre los .md tocados: 576 enlaces, 0 rotos.
+- `./init.sh`: `BUILD SUCCESSFUL in 1m 25s`, `==> init.sh OK`.
+- `gh run list`: CI en main/PR del 2026-10-05 de 7m47s a 10m51s.
