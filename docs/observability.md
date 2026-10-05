@@ -26,7 +26,7 @@ Qué se mide, cómo se expone y cómo se usa en la operación diaria (F-024). La
 | `liveness` | solo `livenessState` | «el proceso está vivo»: **nunca** depende de sistemas externos |
 | `readiness` | `readinessState`, `dynamodb`, `sqs` | «puede atender tráfico»: balanceador, dashboards, despliegues |
 
-- `dynamodb`: `DescribeTable` sobre la tabla `orders` (verifica alcance y que las tablas estén creadas; con `provisioning-enabled` se crean al arrancar, por eso `readiness` sale en `DOWN` unos segundos al inicio).
+- `dynamodb`: `DescribeTable` sobre la tabla `orders` (verifica alcance y que las tablas estén creadas; con `provisioning-enabled` se crean al arrancar, por eso `readiness` sale en `DOWN` unos segundos al inicio). Mientras una tabla falte, las peticiones de la API reciben `503 service-unavailable` (no `500`) y cada una registra un `WARN` `DynamoDB tables are missing` con la excepción completa (`ResourceNotFoundException`, con el nombre de la tabla): es la pista de una tabla que nunca se creó, junto con `readiness` en `DOWN` (DP-038).
 - `sqs`: la cola de órdenes se resuelve (`GetQueueUrl`, o `GetQueueAttributes` si se configuró `orders-queue-url`).
 - Son indicadores **reactivos** (no bloquean ningún hilo), con timeout corto y resultado cacheado brevemente, para que ni un balanceador ni Prometheus golpeen AWS en cada sondeo:
 
@@ -84,7 +84,7 @@ El consumer y el barrido de expiración arrancan **por defecto** ([DP-037](decis
 | `ticketflow.expiration.sweeps` | counter | `result`: `ok`, `error` | Barridos terminados / fallidos por completo (falló la consulta de candidatas) |
 | `ticketflow.expiration.sweep.duration` | timer | — | Duración de un barrido |
 | `ticketflow.ratelimit.rejections` | counter | `limiter`: `write`, `admin_failure` | Peticiones rechazadas con `429`: presupuesto de escritura o bloqueo por intentos fallidos de `X-Admin-Key` |
-| `ticketflow.dependency.unavailable` | counter | — | Respuestas `503 service-unavailable` por DynamoDB/SQS con throttling, timeout o caída |
+| `ticketflow.dependency.unavailable` | counter | — | Respuestas `503 service-unavailable` por DynamoDB/SQS con throttling, timeout o caída, o por una tabla de DynamoDB inexistente (ventana de arranque, DP-038: sube en los primeros segundos y no debe seguir subiendo; si lo hace, las tablas no se crearon) |
 
 ### Regla de cardinalidad
 

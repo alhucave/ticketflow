@@ -691,5 +691,27 @@
       "End-to-end proof: run the packaged app WITHOUT any enabling variable and show purchase -> SOLD and a reservation expiring; API-only role with explicit false leaves the order RESERVED; app with unreachable infrastructure stays up with readiness DOWN.",
       "docs/requirements.md, docs/decisions.md (new DP-037 + DP-006 and DP-012 updated), README, docs/aws.md, docs/observability.md, docs/architecture.md and docker-compose comments updated; full INCLUDE_INTEGRATION=true ./init.sh green and stable (at least 3 times in a row)."
     ]
+  },
+  {
+    "id": "F-034",
+    "name": "fix-startup-race-missing-tables",
+    "phase": 10,
+    "status": "done",
+    "depends_on": [
+      "F-031"
+    ],
+    "issue": 67,
+    "origin": "own",
+    "decisions": [
+      "DP-038"
+    ],
+    "title": "Requests accepted before the DynamoDB tables exist return 500 instead of 503 (startup race)",
+    "description": "Tables are provisioned (ApplicationReady) after the web server already accepts traffic (pre-existing since F-006). A request arriving in that window hits DynamoDB ResourceNotFoundException ('Cannot do operations on a non-existent table'), which is not classified and falls into the generic 500, while readiness already says DOWN. Reproduced: POST /events polled from the first instant after docker-compose up (no --wait) returned 500 internal-error, then 201. A temporary, expected condition must be 503 + Retry-After, not a misleading 500.",
+    "acceptance": [
+      "A deterministic regression test (full context, real DynamoDB Local, tables NOT provisioned) reproduces the window and fails today with 500 on the API routes that touch DynamoDB; the same routes work normally once the tables exist, and business errors (404/409) are unchanged.",
+      "The fix is the smallest correct one, justified against the alternatives (classify ResourceNotFoundException as transient 503 + Retry-After; provision before the web server accepts traffic; a filter answering 503 until provisioning ends). It must not hide a real misconfiguration forever (readiness stays DOWN, full exception logged server-side), must not hang or crash when DynamoDB is unreachable (F-031), leaks nothing internal, and increments the F-024 dependency-unavailable metric.",
+      "Polling experiment against the real stack (docker-compose up WITHOUT --wait, POST /events from the first instant) repeated at least 10 times and once under CPU load: before the fix a 500 appears, after the fix only connection errors, then 503 (with Retry-After), then 201; never a 500.",
+      "No existing mapping or test weakened; README error catalogue and startup behaviour, docs/observability.md (if semantics change) and docs/decisions.md (DP-038, Extra propio) updated; ./init.sh and INCLUDE_INTEGRATION=true ./init.sh green."
+    ]
   }
 ]
