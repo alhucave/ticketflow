@@ -184,8 +184,8 @@ La app se arranca con la **misma imagen** y se especializa con propiedades (veri
 
 | Propiedad (variable) | Por defecto | Servicio `api` | Servicio `worker` |
 |----------------------|-------------|----------------|-------------------|
-| `ticketflow.sqs.consumer.enabled` (`TICKETFLOW_SQS_CONSUMER_ENABLED`) | `false` | `false` | `true` |
-| `ticketflow.expiration.enabled` (`TICKETFLOW_EXPIRATION_ENABLED`) | `false` | `false` | `true` |
+| `ticketflow.sqs.consumer.enabled` (`TICKETFLOW_SQS_CONSUMER_ENABLED`) | `true` ([DP-037](decisions.md#dp-037-el-consumidor-sqs-y-el-job-de-expiración-arrancan-por-defecto)) | **`false` explícito** | `true` (el valor por defecto; no hace falta fijarlo) |
+| `ticketflow.expiration.enabled` (`TICKETFLOW_EXPIRATION_ENABLED`) | `true` | **`false` explícito** | `true` (el valor por defecto; no hace falta fijarlo) |
 | `ticketflow.dynamodb.provisioning-enabled` (`TICKETFLOW_DYNAMODB_PROVISIONING_ENABLED`) | `false` | `false` | `false` |
 | `ticketflow.rate-limit.trust-forwarded-for` (`TICKETFLOW_RATE_LIMIT_TRUST_FORWARDED_FOR`) | `false` | `true` (con ALB directo, ver [§5.4](#54-borde-waf-rate-limit-y-ddos)) | no aplica (no recibe tráfico público) |
 | `ticketflow.observability.queue-metrics.enabled` | `false` | `false` | `false` salvo que se quiera el gauge de la app ([§6.2](#62-métricas)) |
@@ -197,9 +197,9 @@ Detalles que importan y que son fáciles de olvidar:
 - **No se definen `endpoint`, `access-key-id` ni `secret-access-key`** en AWS: sin endpoint se usa el real y sin ambas claves aplica la cadena de credenciales por defecto (rol de la tarea). Las variables `AWS_ENDPOINT_URL_*` de compose no deben copiarse.
 - **La región se lee de `ticketflow.dynamodb.region` y `ticketflow.sqs.region`** (por defecto `us-east-1`), no de `AWS_REGION`: fuera de `us-east-1` hay que fijar las dos propiedades.
 - **Los nombres de las tablas están fijos en el código** (`events`, `inventory`, `orders`, `order_audit` en `DynamoDbTables`; no hay prefijo configurable). Dos entornos en la misma cuenta y región colisionarían: es una razón más para una **cuenta por entorno** ([§5.1](#51-cuentas-y-guardarraíles)). El nombre de la cola sí es configurable (`ORDERS_QUEUE_NAME`), y `ticketflow.sqs.orders-queue-url` permite fijar la URL y evitar `GetQueueUrl`.
-- **El servicio `api` sigue necesitando SQS** (publica) y el cliente DynamoDB; solo se desactivan los adaptadores de entrada asíncronos.
+- **El servicio `api` debe desactivar los dos adaptadores a propósito**: desde F-031 el consumidor y el barrido arrancan por defecto, así que un `api` sin `TICKETFLOW_SQS_CONSUMER_ENABLED=false` y `TICKETFLOW_EXPIRATION_ENABLED=false` también procesaría y barrería (es seguro, pero rompe la separación). Sigue necesitando SQS (publica) y el cliente DynamoDB; solo se desactivan los adaptadores de entrada asíncronos. Con ambos activos y la infraestructura inaccesible, la tarea no cae: reintenta con *backoff*, la readiness queda `DOWN` y la liveness `UP`.
 - Si el servicio `api` arrancara con el consumer activo también funcionaría (es seguro, ver §3.2), pero mezclaría la carga HTTP con la de proceso y complicaría el autoescalado: por eso se separan.
-- **El barrido de expiración corre en cada tarea `worker`**: es seguro y se reparte por conflictos benignos, pero con N tareas los N barridos examinan las mismas candidatas (`skippedConflicts` sube y se gastan lecturas y escrituras). Con 2-3 tareas es aceptable; si crece, el paso siguiente es un servicio `expirer` aparte con 1-2 tareas (misma imagen, solo `expiration.enabled=true`).
+- **El barrido de expiración corre en cada tarea `worker`**: es seguro y se reparte por conflictos benignos, pero con N tareas los N barridos examinan las mismas candidatas (`skippedConflicts` sube y se gastan lecturas y escrituras). Con 2-3 tareas es aceptable; si crece, el paso siguiente es un servicio `expirer` aparte con 1-2 tareas (misma imagen, `expiration.enabled=true` y `consumer.enabled=false` explícito).
 
 Variables de entorno de la *task definition* del servicio `api` (ilustrativo, no desplegado; valores de ejemplo):
 
@@ -851,7 +851,7 @@ Las alarmas de la app (`ticketflow.*`) solo existen si se publican esas métrica
 
 **Reservas atascadas en `RESERVED`** (más de 10 min, el job no las libera):
 
-1. Comprobar `ticketflow.expiration.sweeps`: ¿el `worker` está arriba y el job activo (`TICKETFLOW_EXPIRATION_ENABLED=true`)?
+1. Comprobar `ticketflow.expiration.sweeps`: ¿el `worker` está arriba y el job activo (por defecto lo está; ¿alguien fijó `TICKETFLOW_EXPIRATION_ENABLED=false` en él?)?
 2. Comprobar `ticketflow.expiration.sweep.orders{result="failed"}` y los logs por errores de DynamoDB.
 3. Una orden `RESERVED` sin mensaje (la tarea murió entre la transacción y el `SendMessage`) se libera al expirar; un reintento del cliente con la misma clave republica el mensaje.
 4. Si hay órdenes muy por encima del TTL, mirar `max-per-sweep` (500): una avalancha de expiradas tarda varios barridos en liberarse.

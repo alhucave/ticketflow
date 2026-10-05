@@ -9,7 +9,8 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  * {@code TICKETFLOW_EXPIRATION_*}).
  *
  * <ul>
- *   <li>{@code enabled}: the scheduler only runs when {@code true} (default {@code false});</li>
+ *   <li>{@code enabled}: the scheduler runs unless set to {@code false} (default {@code true}, DP-037; an API-only
+ *       instance sets it explicitly to {@code false});</li>
  *   <li>{@code interval}: pause between the end of a sweep and the start of the next one;</li>
  *   <li>{@code initialDelay}: wait before the first sweep after startup;</li>
  *   <li>{@code concurrency}: orders released in parallel within a sweep;</li>
@@ -19,7 +20,7 @@ import org.springframework.boot.context.properties.bind.DefaultValue;
  */
 @ConfigurationProperties(prefix = "ticketflow.expiration")
 public record ExpirationProperties(
-        @DefaultValue("false") boolean enabled,
+        @DefaultValue("true") boolean enabled,
         @DefaultValue("PT1M") Duration interval,
         @DefaultValue("PT10S") Duration initialDelay,
         @DefaultValue("4") int concurrency,
