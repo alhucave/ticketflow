@@ -166,7 +166,7 @@ Spring Boot acepta cada propiedad como variable de entorno en mayúsculas con `_
 |----------------------|-------------|-------------|
 | `ticketflow.admin.api-key` (`ADMIN_API_KEY`) | vacío | Secreto de las rutas admin. Nunca se versiona ni se registra ([DP-015](docs/decisions.md#dp-015-guardia-x-admin-key-para-las-rutas-de-administración)) |
 | `ticketflow.orders.max-quantity` | `10` | Máximo de entradas por orden (`400` por encima). **Decisión propia: no está en el enunciado** ([DP-001](docs/decisions.md#dp-001-máximo-de-10-entradas-por-orden)) |
-| `ticketflow.reservation.ttl` | `PT10M` | Vigencia de una reserva antes de expirar ([DP-006](docs/decisions.md#dp-006-ttl-de-reserva-configurable-por-defecto-pt10m-y-job-de-expiración-opcional)) |
+| `ticketflow.reservation.ttl` | `PT10M` | Vigencia de una reserva antes de expirar. **Máximo `PT10M`** (requisito del enunciado): un valor mayor, cero o negativo **impide arrancar la aplicación** con un error que nombra la propiedad; valores desde `PT1S` hasta `PT10M` son válidos ([DP-006](docs/decisions.md#dp-006-ttl-de-reserva-configurable-por-defecto-pt10m-y-job-de-expiración-opcional)) |
 | `ticketflow.availability.poll-interval` | `1s` | Cada cuánto consulta el inventario el stream de disponibilidad ([DP-011](docs/decisions.md#dp-011-disponibilidad-también-como-stream-sse-con-sondeo-configurable)) |
 | `spring.http.codecs.max-in-memory-size` | `32KB` | Tamaño máximo del body (`413` por encima) ([DP-019](docs/decisions.md#dp-019-límite-de-tamaño-del-cuerpo-de-las-peticiones-32-kb)) |
 | `management.server.port` (`MANAGEMENT_SERVER_PORT`) | `8081` | Puerto del Actuator ([DP-023](docs/decisions.md#dp-023-puerto-de-gestión-8081-con-health-info-y-prometheus)) |

@@ -647,5 +647,24 @@
       "Registered as a decision in docs/decisions.md (DP-036) and linked from feature_list.json (origin own)",
       "init.sh fails when a workflow uses a floating runner label (-latest), proven with negative controls"
     ]
+  },
+  {
+    "id": "F-030",
+    "name": "enforce-reservation-ttl-cap",
+    "phase": 10,
+    "status": "done",
+    "depends_on": [
+      "F-029"
+    ],
+    "issue": 60,
+    "origin": "spec",
+    "title": "Enforce the 10-minute maximum of the reservation TTL",
+    "description": "The statement says tickets are reserved temporarily \"máximo 10 minutos\". ticketflow.reservation.ttl defaults to PT10M but is only validated as positive: nothing prevents configuring PT2H, which would contradict the requirement. Define the cap as a named constant and reject a larger TTL at startup with a clear message.",
+    "acceptance": [
+      "A reservation TTL above 10 minutes is rejected at startup with a clear message (fail fast); values from 1 s up to PT10M stay valid and the default is unchanged. The cap is a named constant tied to the requirement (no magic number), enforced where the TTL is validated, and covered by unit tests (boundary: exactly PT10M ok, PT10M + 1 ns rejected, zero/negative rejected) and by an application-context test proving the app refuses to start with an over-limit value.",
+      "End-to-end proof against the real stack: the TTL used by POST /orders never exceeds 10 minutes.",
+      "docs/requirements.md (RF-2) and the existing decision about the configurable TTL in docs/decisions.md updated; README configuration table says the maximum.",
+      "No behaviour change for the default configuration."
+    ]
   }
 ]

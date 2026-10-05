@@ -63,7 +63,13 @@ public class RequestPurchaseUseCase {
                                   OrderQueuePublisher queue, Clock clock, Duration reservationTtl,
                                   BusinessMetrics metrics) {
         if (reservationTtl == null || reservationTtl.isZero() || reservationTtl.isNegative()) {
-            throw new IllegalArgumentException("Reservation TTL must be positive: " + reservationTtl);
+            throw new IllegalArgumentException(
+                    "ticketflow.reservation.ttl must be positive, but was " + reservationTtl);
+        }
+        if (reservationTtl.compareTo(Order.MAX_RESERVATION_TTL) > 0) {
+            throw new IllegalArgumentException("ticketflow.reservation.ttl must not exceed "
+                    + Order.MAX_RESERVATION_TTL + " (the statement reserves tickets for at most 10 minutes), but was "
+                    + reservationTtl);
         }
         this.placement = placement;
         this.orders = orders;
