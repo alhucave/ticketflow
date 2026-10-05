@@ -118,6 +118,7 @@ docker-compose down -v      # detiene y elimina contenedores y volúmenes
 | localstack | `127.0.0.1:4566` | `localstack/localstack:4.14.0`, solo SQS |
 
 - Al arrancar, `docker/localstack/init-queues.sh` crea la cola `orders` y su DLQ `orders-dlq` (redrive con `maxReceiveCount=3`). El healthcheck de LocalStack solo pasa cuando el script terminó, y `app` espera a que `dynamodb` y `localstack` estén sanos. Con `TICKETFLOW_DYNAMODB_PROVISIONING_ENABLED=true` (lo activa compose) la app crea las tablas al arrancar.
+- **Primeros segundos tras `docker-compose up` (sin `--wait`):** el puerto 8080 empieza a aceptar conexiones **antes** de que se creen las tablas (la creación corre al terminar el arranque). Un cliente verá primero errores de conexión (el contenedor aún arranca) y, durante ~1-2 s, `503 service-unavailable` con `Retry-After: 5` (la readiness también está en `503 DOWN`); después `201`/`200` con normalidad. Es un estado temporal y esperado: reintente tras `Retry-After`. Nunca debe verse un `500` ahí ([`DP-038`](docs/decisions.md#dp-038-una-tabla-de-dynamodb-inexistente-se-responde-503-no-500)).
 - Verificar colas: `docker-compose exec localstack awslocal sqs list-queues`. Inspeccionar la DLQ: `docker-compose exec localstack awslocal sqs receive-message --queue-url http://localhost:4566/000000000000/orders-dlq`.
 - Las imágenes tienen tag fijo (sin `:latest`). Todos los puertos se publican solo en `127.0.0.1` (DynamoDB Local y LocalStack no tienen autenticación). Detalle del endurecimiento (sistema de ficheros de solo lectura, `cap_drop: ALL`, límites de recursos): [`docs/security.md`](docs/security.md#endurecimiento-de-contenedores).
 - Solo se usan credenciales ficticias (`test`/`test`). `.env` está en `.gitignore`: nunca commitee secretos.
@@ -391,7 +392,7 @@ Todo error (de dominio, de validación, de Spring o inesperado) usa **una sola f
 | `429` | `rate-limit-exceeded` | Demasiadas escrituras del cliente, o demasiados intentos **fallidos** de `X-Admin-Key`; lleva `Retry-After` (segundos) |
 | `500` | `internal-error` | Cualquier error no previsto (texto fijo) |
 | `503` | `order-enqueue-failed` | No se pudo encolar la orden: reintentar con una `Idempotency-Key` **nueva** |
-| `503` | `service-unavailable` | Una dependencia (DynamoDB, SQS) limita, expira o no responde tras los reintentos del adaptador. Lleva `Retry-After: 5` |
+| `503` | `service-unavailable` | Una dependencia (DynamoDB, SQS) limita, expira o no responde tras los reintentos del adaptador, **o una tabla de DynamoDB aún no existe** (ventana de arranque antes de que termine la creación de tablas, [`DP-038`](docs/decisions.md#dp-038-una-tabla-de-dynamodb-inexistente-se-responde-503-no-500)). Lleva `Retry-After: 5`. El cuerpo no dice qué tabla falta; la excepción completa queda en el log del servidor |
 
 Por qué `409` y no `503` para la contención de inventario: la petición chocó con un cambio concurrente y no se aplicó; `503` se reserva para «el servicio no puede aceptar trabajo». La capa web no reintenta nada (no puede saber si una petición es repetible): los reintentos con `Retry.backoff` viven en los adaptadores y solo para errores transitorios; al cliente se le indica cuándo reintentar con `Retry-After`.
 
@@ -531,6 +532,7 @@ Se mantienen vivos: cada feature de `feature_list.json` declara su `origin` (`sp
 | `429 rate-limit-exceeded` al ejecutar muchas escrituras seguidas | Es el límite por cliente (20 de ráfaga, 1/s). Espere `Retry-After` segundos o espacie las peticiones (`NEWMAN_DELAY_MS` en `run-newman.sh`) |
 | La primera compra tras recrear solo la app tarda hasta ~30 s en pasar a `SOLD` | Observado: un long poll del consumidor anterior puede quedar vivo en LocalStack y recibir el mensaje; reaparece al vencer el `visibility-timeout` (30 s). Es el comportamiento at-least-once, no se pierde nada; ocurre en local al reiniciar la app sin reiniciar LocalStack (no siempre). `demo.sh` espera hasta 60 s y la colección de Newman hasta 100 reintentos de *polling*, así que lo toleran |
 | `readiness` responde `503` justo tras arrancar | Normal durante unos segundos: la app crea las tablas de DynamoDB. `docker-compose up --wait` o `demo.sh` esperan a que esté lista |
+| La API responde `503 service-unavailable` y no se recupera (la readiness sigue en `DOWN`) | Si dura más que unos segundos, las tablas no se están creando: revise que `TICKETFLOW_DYNAMODB_PROVISIONING_ENABLED=true` (o que las cree usted) y busque en el log la advertencia `DynamoDB tables are missing` (lleva la excepción completa con el nombre de la tabla) y `DynamoDB table provisioning failed` |
 | Los datos desaparecen al reiniciar | DynamoDB Local corre en memoria (`-inMemory`) y LocalStack no persiste: es deliberado para desarrollo |
 | Newman no llega a la app | Ejecútelo con `./requests/run-newman.sh` (usa la red de compose). `localhost` dentro de un contenedor no es el anfitrión |
 

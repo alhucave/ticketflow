@@ -39,6 +39,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.bind.support.WebExchangeBindException;
 import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.ServerWebInputException;
+import software.amazon.awssdk.services.dynamodb.model.ResourceNotFoundException;
 
 /**
  * Translates every error into one RFC 7807 shape ({@code application/problem+json}): {@code type}
@@ -218,13 +219,22 @@ public class ApiExceptionHandler {
 
     /**
      * A dependency is throttling, timing out or unreachable (retries at the adapter are already spent):
-     * {@code 503} + {@code Retry-After}. The request may have had no effect or only part of one, but every
-     * write path is idempotent or compensating, so retrying is safe. The cause is logged by class only.
+     * {@code 503} + {@code Retry-After}. The same answer covers a missing DynamoDB table (the startup window
+     * before provisioning ends, DP-038). The request may have had no effect or only part of one, but every
+     * write path is idempotent or compensating, so retrying is safe. The cause is logged by class only, except a
+     * missing table, whose full exception is logged.
      */
     private static Mapped unavailable(Throwable ex, String correlationId, OperationalMetrics metrics) {
         metrics.dependencyUnavailable();
-        withCorrelationId(correlationId, () -> LOG.warn("Dependency unavailable ({}); answering 503",
-                ex.getClass().getSimpleName()));
+        withCorrelationId(correlationId, () -> {
+            if (ex instanceof ResourceNotFoundException) {
+                // Startup window or misconfiguration (DP-038): keep the whole cause (table name, stack) in the log.
+                LOG.warn("DynamoDB tables are missing (startup provisioning not finished, or provisioning disabled "
+                        + "and tables not created); answering 503", ex);
+            } else {
+                LOG.warn("Dependency unavailable ({}); answering 503", ex.getClass().getSimpleName());
+            }
+        });
         Mapped mapped = new Mapped(problem(HttpStatus.SERVICE_UNAVAILABLE, "service-unavailable",
                 "Service temporarily unavailable",
                 "A required service is temporarily unavailable; retry shortly"));
