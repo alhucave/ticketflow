@@ -28,14 +28,14 @@ Java 25 · Spring Boot 4.x · Spring WebFlux · Gradle (Kotlin DSL) · DynamoDB 
 1. `leader` toma una feature `pending` (respetando `depends_on`) y lanza un `implementer`. Al redactar una feature fija su `origin` (`spec`, `interpretation` u `own`) preguntándose: **«¿esto agrega algo que el enunciado no exige?»** (ver [Enunciado vs decisiones propias](#enunciado-vs-decisiones-propias)).
 2. `implementer` trabaja en la rama `feature/<id>-<name>`, escribe código + tests, **agrega o actualiza las entradas `DP-NNN` de `docs/decisions.md` y la matriz de `docs/requirements.md`**, corre `./init.sh` y reporta en `progress/impl_<name>.md`.
 3. `reviewer` ejecuta `./init.sh` por su cuenta y aplica `CHECKPOINTS.md` (incluido **C13**: registro de decisiones y matriz al día); escribe `progress/review_<name>.md`.
-4. Con `APPROVED`: se abre el PR (`Closes #<issue>`), el CI debe estar en verde y se hace merge a `main`. (Con el repositorio privado en plan Free GitHub no impone la protección de `main`: respetar el CI en verde es una disciplina del flujo, no una regla técnica.)
+4. Con `APPROVED`: se abre el PR (`Closes #<issue>`), el CI debe estar en verde y se hace merge a `main`. (El repositorio es público y `main` está protegida: el check `verify` es obligatorio y la rama debe estar al día, sin force-push ni borrado; no se exigen revisiones porque quien propone es la única persona propietaria, ver [`DP-041`](docs/decisions.md#dp-041-el-repositorio-es-público-protección-de-main-y-ajustes-de-seguridad-restablecidos).)
 5. El `implementer` marca `done` en `feature_list.json`.
 
 ## Reglas globales
 
 - Una sola feature `in_progress` a la vez.
 - Código, nombres y comentarios en **inglés**; issues, README y docs en español.
-- Nunca commitear secretos. El repositorio es **privado**, pero no es un almacén de secretos (puede clonarse o volver a hacerse público).
+- Nunca commitear secretos. El repositorio es **público** (desde 2026-10-05, [`DP-041`](docs/decisions.md#dp-041-el-repositorio-es-público-protección-de-main-y-ajustes-de-seguridad-restablecidos)): cualquier cosa que se commitee la puede ver y clonar cualquiera, y reescribir el historial no la retira de lo ya clonado. Los issues y PR también son públicos.
 - AWS real queda fuera de alcance hasta la fase 9 (solo documentación).
 
 ## Enunciado vs decisiones propias

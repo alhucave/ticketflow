@@ -758,5 +758,28 @@
       "README/docs explain how to pull and run the published image and the package visibility (private while the repo is private; changing it is the owner's decision).",
       "Registered as a decision in docs/decisions.md and linked from feature_list.json."
     ]
+  },
+  {
+    "id": "F-035",
+    "name": "repository-is-public",
+    "phase": 10,
+    "status": "pending",
+    "depends_on": [
+      "F-034"
+    ],
+    "issue": 72,
+    "origin": "own",
+    "decisions": [
+      "DP-041"
+    ],
+    "title": "The repository is public: restore the docs and record the decision",
+    "description": "On 2026-10-05 the owner decided the repository must be public (it had been private since 2026-10-03). Before flipping it a read-only audit found no documents/keys/.env tracked, no real credential in the 158 commits, no secrets or e-mails in the 34 issues and 37 PRs and no local absolute paths in tracked files. The visibility and the repository settings (branch protection of main, private vulnerability reporting, secret scanning + push protection, approval for outside contributors' workflow runs, read-only default token) were already applied and verified through the API by the owner session. This feature is documentation and decision record only: fix every statement that is now false (private repository, main protection not enforceable, cloning needs access, private package) and register the decision.",
+    "acceptance": [
+      "Every statement that the repository is private, that main protection is not enforced, or that cloning needs access is corrected; grep evidence of no leftover stale statement.",
+      "README / docs/security.md: describe the active protection (and why no required reviews), private vulnerability reporting (link to the Security tab flow), secret scanning + push protection, outside-contributor approval for Actions, and what a public repo implies for CI (public runners).",
+      "Release docs (F-032): package visibility is NOT assumed. State what is expected (the package created by the first publication may be private or public) and that it must be checked after the first release; changing visibility is the owner's decision; adjust the read:packages login instructions accordingly (needed only while the package is private).",
+      "New decision in docs/decisions.md (DP-041, type 'Extra propio') recording the decision and date, the audit and its results, the exposures knowingly accepted (author identity, statement fragments), the settings applied and the consequences; DP-030 is marked 'Reemplazada por DP-041' rather than deleted; linked from feature_list.json.",
+      "Links/anchors resolve; ./init.sh green; no code change."
+    ]
   }
 ]

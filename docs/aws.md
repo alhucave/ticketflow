@@ -720,7 +720,7 @@ Permisos del rol de despliegue (ilustrativo, no desplegado): subir la imagen a u
 ```mermaid
 flowchart LR
     pr["Pull request"] --> ci["GitHub Actions<br/>verify y security"]
-    ci --> main["Merge a main<br/>protección de rama si el plan lo permite"]
+    ci --> main["Merge a main<br/>protección de rama: verify obligatorio"]
     main --> tag["Tag v*"]
     tag --> rel["release.yml<br/>hoy publica en ghcr.io"]
     rel -.->|"diseño: OIDC, rol de despliegue"| ecr["ECR<br/>etiqueta inmutable, escaneo, firma"]
@@ -883,8 +883,8 @@ Ya existe y se conserva:
 
 | Control | Estado |
 |---------|--------|
-| Rama `main` protegida: check `verify` obligatorio, rama al día, sin force-push ni borrado | **Configurada, pero no aplicable hoy**: el repositorio es privado en un plan Free (requiere GitHub Pro/Team o repositorio público; ver README, «CI/CD») |
-| Todo cambio por PR con `Closes #<issue>` y CI en verde | Existente como **convención** (el CI corre, pero hoy no bloquea la fusión) |
+| Rama `main` protegida: check `verify` obligatorio, rama al día, sin force-push ni borrado | **Activa** (repositorio público desde 2026-10-05): `verify` obligatorio con la rama al día, sin force-push ni borrado; sin revisiones obligatorias (propietaria única) y con `enforce_admins` desactivado ([`DP-041`](decisions.md#dp-041-el-repositorio-es-público-protección-de-main-y-ajustes-de-seguridad-restablecidos), [`security.md`](security.md#repositorio-público-protección-y-ajustes-de-github)) |
+| Todo cambio por PR con `Closes #<issue>` y CI en verde | Existente como práctica del flujo; el bloqueo técnico es solo el de `verify` obligatorio (no hay revisiones obligatorias) |
 | Escaneo de dependencias, imagen y secretos | Existente (`security.yml`, semanal y en cada PR) |
 | Dependabot (Gradle con lockfile, Actions, Docker) | Existente |
 

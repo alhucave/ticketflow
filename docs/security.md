@@ -2,7 +2,7 @@
 
 Modelo de amenazas, controles y límites conocidos de ticketflow. Describe lo que **está implementado y verificado en este repositorio**; los controles que dependen de una cuenta AWS (borde, IAM, KMS, red, auditoría) se diseñan (sin desplegar) en [`aws.md`](aws.md#5-seguridad-en-la-nube) (ver también «Controles en la nube»). Para reportar una vulnerabilidad, ver [`SECURITY.md`](../SECURITY.md).
 
-Contexto: no hay autenticación de usuarios (la API de compra es anónima); la única credencial es la clave de administración (`X-Admin-Key`) de las rutas de cortesías. El repositorio es privado, pero eso no es un almacén de secretos (puede volver a hacerse público o haberse clonado): nada sensible se versiona.
+Contexto: no hay autenticación de usuarios (la API de compra es anónima); la única credencial es la clave de administración (`X-Admin-Key`) de las rutas de cortesías. El repositorio es **público** (desde 2026-10-05, [`DP-041`](decisions.md#dp-041-el-repositorio-es-público-protección-de-main-y-ajustes-de-seguridad-restablecidos)): cualquiera puede verlo y clonarlo, así que nada sensible se versiona y lo que se publica no se puede retirar de lo ya clonado.
 
 ## Modelo de amenazas
 
@@ -50,7 +50,7 @@ Si el escaneo marca una dependencia transitiva con corrección, súbala con una 
 
 Config en `.gitleaks.toml` (extiende las reglas por defecto). **Única excepción**, estrecha y justificada: la regla genérica `generic-api-key` (basada en entropía) se ignora **solo** en `src/test/java/**/*.java`, donde hay literales de prueba (claves `Idempotency-Key` de ejemplo, constantes `X-Admin-Key` ficticias de los tests) que no son credenciales. Todas las reglas específicas de proveedor (claves AWS, claves privadas, tokens...) siguen aplicando también a los tests y `generic-api-key` sigue aplicando al resto del repositorio. Los valores ficticios de `docker-compose.yml`, `.env.example` y la documentación (`test`/`test`, claves vacías) **no** disparan ninguna regla y no necesitan excepción. Verificado en local: todo el historial y el árbol limpios con esa configuración; una clave AWS plantada y luego borrada de un historial de prueba **sí** se detecta.
 
-Si un hallazgo es real: **revoque la credencial** (reescribir el historial no basta: puede haberse clonado y el repositorio puede volver a hacerse público) y después elimínela.
+Si un hallazgo es real: **revoque la credencial** (reescribir el historial no basta: el repositorio es público y puede haberse clonado) y después elimínela.
 
 ### `.trivyignore`
 
@@ -76,6 +76,21 @@ docker run --rm -v "$PWD:/repo" -w /repo ghcr.io/gitleaks/gitleaks:v8.30.1 dir -
 docker build -t ticketflow:local . && docker run --rm -v /var/run/docker.sock:/var/run/docker.sock -v trivycache:/root/.cache \
   aquasec/trivy:0.75.0 image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 ticketflow:local
 ```
+
+## Repositorio público: protección y ajustes de GitHub
+
+El repositorio es público desde 2026-10-05 (estuvo privado desde 2026-10-03). Los ajustes siguientes se aplicaron y se **comprobaron con consultas de solo lectura a la API de GitHub** el 2026-10-05; el razonamiento, la auditoría previa y lo que se aceptó conscientemente están en [`DP-041`](decisions.md#dp-041-el-repositorio-es-público-protección-de-main-y-ajustes-de-seguridad-restablecidos).
+
+| Control | Estado comprobado | Para qué sirve | Límite honesto |
+|---------|-------------------|----------------|----------------|
+| Protección de `main` | check `verify` obligatorio con la rama al día (`strict: true`), `allow_force_pushes: false`, `allow_deletions: false` | Una fusión con el CI en rojo o desactualizado, un force-push o el borrado de `main` quedan bloqueados | **No se exigen revisiones** (`required_pull_request_reviews: null`): la única persona propietaria no puede aprobar su propio PR, así que exigirlas bloquearía todo. `enforce_admins: false`: la propietaria puede saltarse la regla en una emergencia (y por tanto también por error). La regla no sobrevivió al periodo privado y hubo que reaplicarla |
+| Reporte privado de vulnerabilidades | `enabled: true` | Es el canal que promete [`SECURITY.md`](../SECURITY.md): pestaña **Security** → **Report a vulnerability** | Depende de que la propietaria lea las notificaciones; es un proyecto de demostración sin SLA |
+| Secret scanning y push protection | ambos `enabled` | GitHub avisa de secretos con formato de proveedor y rechaza el push que los contiene | Complementa a gitleaks (CI, historial completo) y no lo sustituye; no detecta secretos sin formato conocido |
+| Workflows de colaboradores externos | `approval_policy: all_external_contributors` | Un PR de un fork no ejecuta Actions sin que la propietaria apruebe el run | Hay que **leer el diff antes de aprobar**: aprobar es ejecutar su código en el runner |
+| Token por defecto de los workflows | `default_workflow_permissions: read`, `can_approve_pull_request_reviews: false` | Cada workflow parte de solo lectura y declara lo que necesita (ya lo hacen, por job) | Un workflow nuevo que olvide declarar permisos sigue siendo de solo lectura |
+| Dependabot security updates | **`disabled`** | — | No está activado: las actualizaciones de versiones de [`.github/dependabot.yml`](../.github/dependabot.yml) siguen activas, pero GitHub no abre PR automáticos de seguridad por alertas |
+
+**Qué implica un repositorio público para el CI:** los runners estándar de GitHub Actions son gratuitos y sin cupo de minutos en repositorios públicos (según la documentación de GitHub; no se ha medido aquí), y en la sesión de la propietaria se observaron ejecuciones más rápidas que en el periodo privado. Las [mediciones de tiempo](decisions.md#dp-029-ci-en-github-actions-y-publicación-de-la-imagen-en-ghcrio) de la documentación son anteriores. Los logs de los runs, los artefactos (`reports`, `hang-dumps`) y los issues y PR son visibles para cualquiera: no deben contener nada sensible.
 
 ## Controles de la aplicación (detalle)
 
