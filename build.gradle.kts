@@ -5,7 +5,9 @@ plugins {
 }
 
 group = "com.ticketflow"
-version = "0.0.1-SNAPSHOT"
+// Release builds pass the tag version (docker build --build-arg APP_VERSION=0.1.0 -> -PappVersion=0.1.0, F-032, DP-040);
+// every other build keeps the development version.
+version = providers.gradleProperty("appVersion").getOrElse("0.0.1-SNAPSHOT")
 
 java {
     toolchain {

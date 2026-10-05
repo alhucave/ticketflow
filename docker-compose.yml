@@ -60,7 +60,9 @@ services:
 
   app:
     build: .
-    image: ticketflow:local
+    # TICKETFLOW_IMAGE runs another image instead of the local build, e.g. the published one (README, "Usar la imagen
+    # publicada"): TICKETFLOW_IMAGE=ghcr.io/alhucave/ticketflow:0.1.0 docker-compose up -d --wait --no-build
+    image: ${TICKETFLOW_IMAGE:-ticketflow:local}
     ports:
       - "127.0.0.1:${APP_PORT:-8080}:8080"
       # Actuator (health probes, Prometheus metrics): own port, loopback only. Never publish it on 0.0.0.0.

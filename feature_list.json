@@ -735,5 +735,28 @@
       "If it does NOT reproduce: cheap instrumentation so the next occurrence yields a root cause instead of a bare timeout (a JUnit extension that dumps all threads and the HTTP client/connection state when a test exceeds a threshold, uploaded as a CI artifact), and the open issue documented honestly.",
       "Registered in docs/decisions.md (DP-039) and linked from feature_list.json; docs/verification.md explains how to read a hang dump or the new protocol test."
     ]
+  },
+  {
+    "id": "F-032",
+    "name": "first-release-ghcr",
+    "phase": 10,
+    "status": "in_progress",
+    "depends_on": [
+      "F-033"
+    ],
+    "issue": 62,
+    "origin": "own",
+    "decisions": [
+      "DP-040"
+    ],
+    "title": "First release: publish the image to ghcr.io (v0.1.0)",
+    "description": "release.yml (build and push ghcr.io/alhucave/ticketflow on v* tags) was written in F-003 but has never run, so there is no published image and the workflow is unproven. Review it against reality and harden it (CI gate before publishing, release version reported by the app, smoke test of the published digest, platform decision, docs and release procedure) WITHOUT tagging or publishing: the real v0.1.0 release is cut by the main session after the PR is merged.",
+    "acceptance": [
+      "Review release.yml against reality before tagging (tag-to-image-tag mapping, permissions, GITHUB_TOKEN push to ghcr from a PRIVATE repo, image labels linking the package to the repo, the Dockerfile build, and that the app version reported at runtime matches the tag or is documented).",
+      "Create the first tag v0.1.0 on the final main (versioning scheme recorded as a decision) and prove the workflow succeeds: run log shows the manifest push with its digest; the tags 0.1.0, 0.1 and latest exist.",
+      "Verify the published image really works when pulled and started with docker-compose (if the token lacks read:packages, say exactly which step needs 'gh auth refresh -s read:packages' from the user and do not work around it).",
+      "README/docs explain how to pull and run the published image and the package visibility (private while the repo is private; changing it is the owner's decision).",
+      "Registered as a decision in docs/decisions.md and linked from feature_list.json."
+    ]
   }
 ]
