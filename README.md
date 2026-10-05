@@ -455,7 +455,7 @@ export TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock
 
 **Cifras actuales** (`INCLUDE_INTEGRATION=true ./init.sh` sobre este commit): **929 pruebas, 0 fallos**; cobertura de líneas **99,54 %** (2.142 de 2.152; ramas 95,89 %), con el mínimo exigido en 90 %. Sin integración (`./init.sh`, sin Docker): **768 pruebas, 0 fallos**, cobertura de líneas **99,40 %** (2.139 de 2.152).
 
-El informe de cobertura HTML queda en `build/reports/jacoco/test/html/index.html` (y el XML en `build/reports/jacoco/test/jacocoTestReport.xml`); el de pruebas, en `build/reports/tests/test/index.html`. En CI se suben como artefacto `reports`. Detalle de la suite de concurrencia, la reconciliación y cómo ejecutarla sola: [`docs/verification.md`](docs/verification.md).
+El informe de cobertura HTML queda en `build/reports/jacoco/test/html/index.html` (y el XML en `build/reports/jacoco/test/jacocoTestReport.xml`); el de pruebas, en `build/reports/tests/test/index.html`. En CI se suben como artefacto `reports` (incluido `build/reports/hang-dumps`, los volcados de hilos y sockets de las pruebas de integración que superan los 20 s o fallan con un timeout: [cómo leerlos](docs/verification.md#diagnóstico-de-cuelgues-volcados-de-hilos-y-sondeo-de-protocolo-f-033-dp-039)). Detalle de la suite de concurrencia, la reconciliación y cómo ejecutarla sola: [`docs/verification.md`](docs/verification.md).
 
 ## Observabilidad
 
@@ -478,7 +478,7 @@ Modelo de amenazas, escaneos, endurecimiento de contenedores y limitaciones cono
 
 | Workflow | Cuándo | Qué hace |
 |----------|--------|----------|
-| `.github/workflows/ci.yml` (job `verify`) | `pull_request` y push a `main` | Java 25 (Temurin) con `INCLUDE_INTEGRATION=true ./init.sh` (build, tests con Testcontainers y barrera del 90 %); sube `build/reports/jacoco`, `build/reports/tests` y `build/test-results` como artefacto `reports` |
+| `.github/workflows/ci.yml` (job `verify`) | `pull_request` y push a `main` | Java 25 (Temurin) con `INCLUDE_INTEGRATION=true ./init.sh` (build, tests con Testcontainers y barrera del 90 %); sube `build/reports/jacoco`, `build/reports/tests`, `build/reports/hang-dumps` y `build/test-results` como artefacto `reports` |
 | `.github/workflows/security.yml` | `pull_request`, push a `main` y semanal (lunes 05:17 UTC) | `dependencies`: Trivy sobre `gradle.lockfile`; `secrets`: gitleaks sobre todo el historial y el árbol; `image`: construye la imagen y la escanea con Trivy. Falla con HIGH/CRITICAL con corrección disponible. Independiente de `verify` |
 | `.github/workflows/release.yml` | push de un tag `v*` | Construye la imagen y la publica en `ghcr.io/alhucave/ticketflow` (tags semver `x.y.z`, `x.y` y `latest`) con `GITHUB_TOKEN` (`packages: write` solo en ese job) |
 
@@ -534,6 +534,7 @@ Se mantienen vivos: cada feature de `feature_list.json` declara su `origin` (`sp
 | `readiness` responde `503` justo tras arrancar | Normal durante unos segundos: la app crea las tablas de DynamoDB. `docker-compose up --wait` o `demo.sh` esperan a que esté lista |
 | La API responde `503 service-unavailable` y no se recupera (la readiness sigue en `DOWN`) | Si dura más que unos segundos, las tablas no se están creando: revise que `TICKETFLOW_DYNAMODB_PROVISIONING_ENABLED=true` (o que las cree usted) y busque en el log la advertencia `DynamoDB tables are missing` (lleva la excepción completa con el nombre de la tabla) y `DynamoDB table provisioning failed` |
 | Los datos desaparecen al reiniciar | DynamoDB Local corre en memoria (`-inMemory`) y LocalStack no persiste: es deliberado para desarrollo |
+| Una prueba de integración falla con `Timeout on blocking read` o tarda más de 20 s | Busque `build/reports/hang-dumps/<prueba>.txt` (en CI, artefacto `reports`): hilos con pila completa y estado de los sockets en el momento del cuelgue. Cómo leerlo y qué descartó F-033: [`docs/verification.md`](docs/verification.md#diagnóstico-de-cuelgues-volcados-de-hilos-y-sondeo-de-protocolo-f-033-dp-039), [DP-039](docs/decisions.md) |
 | Newman no llega a la app | Ejecútelo con `./requests/run-newman.sh` (usa la red de compose). `localhost` dentro de un contenedor no es el anfitrión |
 
 ## Limitaciones conocidas
